@@ -173,7 +173,7 @@ services:
       VOICE_TRANSCRIPT_MODEL: ${VOICE_TRANSCRIPT_MODEL:-openai/whisper-1}
       LLM_VISION_MODEL: ${LLM_VISION_MODEL:-openai/gpt-4o-mini}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY required}
-      LITELLM_DATABASE_URL: postgresql://platform:${PLATFORM_PG_SUPERPASSWORD}@platform-postgres:5432/litellm
+      LITELLM_DATABASE_URL: ${LITELLM_DATABASE_URL:?LITELLM_DATABASE_URL required}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://platform-otel-collector:4317
       OTEL_SERVICE_NAME: platform-litellm
     ports:
