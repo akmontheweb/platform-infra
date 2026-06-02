@@ -1,0 +1,83 @@
+model_list:
+  # ── Fast, low-latency model ───────────────────────────────────
+  - model_name: fast-model
+    litellm_params:
+      model: os.environ/LLM_FAST_MODEL
+    model_info:
+      mode: chat
+
+  # ── Balanced model ────────────────────────────────────────────
+  - model_name: balanced-model
+    litellm_params:
+      model: os.environ/LLM_BALANCED_MODEL
+    model_info:
+      mode: chat
+
+  # ── OpenAI direct fallback ────────────────────────────────────
+  - model_name: openai-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: os.environ/OPENAI_API_KEY
+    model_info:
+      mode: chat
+
+  # ── Local model (Ollama) ──────────────────────────────────────
+  - model_name: local-model
+    litellm_params:
+      model: ollama/mistral
+      api_base: os.environ/OLLAMA_BASE_URL
+    model_info:
+      mode: chat
+
+  # ── Embedding model (pgvector) ────────────────────────────────
+  - model_name: embedding
+    litellm_params:
+      model: os.environ/LLM_EMBEDDING_MODEL
+    model_info:
+      mode: embedding
+
+  # ── Transcription model ───────────────────────────────────────
+  - model_name: transcription-model
+    litellm_params:
+      model: os.environ/VOICE_TRANSCRIPT_MODEL
+    model_info:
+      mode: audio_transcription
+
+  # ── Vision model ──────────────────────────────────────────────
+  - model_name: vision-model
+    litellm_params:
+      model: os.environ/LLM_VISION_MODEL
+    model_info:
+      mode: chat
+
+general_settings:
+  # Master key enables virtual key management (one key per project with budgets)
+  master_key: os.environ/LITELLM_MASTER_KEY
+  # Database required for virtual key storage
+  database_url: os.environ/LITELLM_DATABASE_URL
+
+litellm_settings:
+  fallbacks:
+    - {"fast-model": ["balanced-model", "openai-mini"]}
+    - {"balanced-model": ["openai-mini"]}
+  num_retries: 2
+  request_timeout: 30
+  drop_params: true
+
+  # Semantic response cache — Redis DB 1 (reserved for LiteLLM)
+  cache: true
+  cache_params:
+    type: redis
+    host: platform-redis
+    port: 6379
+    db: 1
+    ttl: 3600
+
+  # OpenTelemetry
+  success_callback: ["otel"]
+  failure_callback: ["otel"]
+  set_verbose: false
+  store_model_in_db: false
+
+environment_variables:
+  OTEL_EXPORTER: "otlp_grpc"

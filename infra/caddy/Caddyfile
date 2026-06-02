@@ -1,0 +1,31 @@
+# =============================================================================
+# platform-infra — Caddy reverse proxy
+#
+# Base file imports per-project route snippets from ./routes/*.caddy
+# Each project gets one file written by Terraform (scripts/provision-project.sh).
+#
+# Observability UIs protected with HTTP Basic Auth.
+# Generate hash: docker run --rm caddy:2-alpine caddy hash-password --plaintext 'pw'
+# =============================================================================
+
+# Observability — shared across all projects
+http://grafana.{$DOMAIN} {
+    basic_auth {
+        {$CADDY_OBS_USER} {$CADDY_OBS_PASSWORD_HASH}
+    }
+    reverse_proxy platform-grafana:3000
+}
+
+http://jaeger.{$DOMAIN} {
+    basic_auth {
+        {$CADDY_OBS_USER} {$CADDY_OBS_PASSWORD_HASH}
+    }
+    reverse_proxy platform-jaeger:16686
+}
+
+http://auth.{$DOMAIN} {
+    reverse_proxy platform-keycloak:8080
+}
+
+# Per-project routes (one .caddy file per project, written by Terraform)
+import /etc/caddy/routes/*.caddy

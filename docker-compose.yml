@@ -1,0 +1,315 @@
+version: "3.9"
+
+# =============================================================================
+# platform-infra — Shared infrastructure stack
+#
+# All services use container_name: platform-{service} so that any project
+# on the same Docker host can reach them by stable DNS name over the shared
+# network (platform-infra_default).
+#
+# Ports use non-standard values so this stack can coexist with Cue's private
+# stack during migration. After migration you can optionally update to
+# standard ports in .env.
+#
+# Usage:
+#   make up        — start all services
+#   make down      — stop all services
+#   make provision PROJECT=cue — terraform provision a project namespace
+# =============================================================================
+
+x-restart: &restart
+  restart: unless-stopped
+
+networks:
+  # Explicit name — projects reference this as an external network
+  platform:
+    name: platform-infra_default
+    driver: bridge
+
+# ---------------------------------------------------------------------------
+# Volumes
+# ---------------------------------------------------------------------------
+volumes:
+  platform_postgres_data:
+  platform_keycloak_postgres_data:
+  platform_redis_data:
+  platform_minio_data:
+  platform_jaeger_data:
+  platform_prometheus_data:
+  platform_grafana_data:
+  platform_caddy_data:
+  platform_caddy_config:
+
+services:
+
+  # ── PostgreSQL 16 + pgvector ────────────────────────────────────────────────
+  platform-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: platform-postgres
+    <<: *restart
+    networks: [platform]
+    environment:
+      POSTGRES_USER: ${PLATFORM_PG_SUPERUSER:?PLATFORM_PG_SUPERUSER required}
+      POSTGRES_PASSWORD: ${PLATFORM_PG_SUPERPASSWORD:?PLATFORM_PG_SUPERPASSWORD required}
+      POSTGRES_DB: postgres
+    ports:
+      - "${PLATFORM_PG_PORT:-5433}:5432"
+    volumes:
+      - platform_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PLATFORM_PG_SUPERUSER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Keycloak PostgreSQL ─────────────────────────────────────────────────────
+  platform-keycloak-postgres:
+    image: pgvector/pgvector:pg16
+    container_name: platform-keycloak-postgres
+    <<: *restart
+    networks: [platform]
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: ${PLATFORM_KC_DB_USER:?PLATFORM_KC_DB_USER required}
+      POSTGRES_PASSWORD: ${PLATFORM_KC_DB_PASSWORD:?PLATFORM_KC_DB_PASSWORD required}
+    volumes:
+      - platform_keycloak_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PLATFORM_KC_DB_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Keycloak 26 ─────────────────────────────────────────────────────────────
+  # No realm is baked in — realms are managed by Terraform (one realm per project)
+  platform-keycloak:
+    build:
+      context: ./infra/keycloak
+      dockerfile: Dockerfile
+    image: platform-keycloak:latest
+    container_name: platform-keycloak
+    <<: *restart
+    networks: [platform]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://platform-keycloak-postgres:5432/keycloak
+      KC_DB_USERNAME: ${PLATFORM_KC_DB_USER:?PLATFORM_KC_DB_USER required}
+      KC_DB_PASSWORD: ${PLATFORM_KC_DB_PASSWORD:?PLATFORM_KC_DB_PASSWORD required}
+      KC_HOSTNAME: http://${PLATFORM_HOSTNAME:-10.0.0.95}:${PLATFORM_KC_PORT:-8081}
+      KC_HOSTNAME_STRICT: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${PLATFORM_KC_ADMIN_USER:?PLATFORM_KC_ADMIN_USER required}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${PLATFORM_KC_ADMIN_PASSWORD:?PLATFORM_KC_ADMIN_PASSWORD required}
+    ports:
+      - "${PLATFORM_KC_PORT:-8081}:8080"
+    depends_on:
+      platform-keycloak-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/localhost/9000 && echo -e 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -iq 'HTTP/1.1 200' <&3"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ── Redis 7 ─────────────────────────────────────────────────────────────────
+  # DB 0 = reserved, DB 1 = LiteLLM semantic cache, DB 2+ = project namespaces
+  platform-redis:
+    image: redis:7-alpine
+    container_name: platform-redis
+    <<: *restart
+    networks: [platform]
+    ports:
+      - "${PLATFORM_REDIS_PORT:-6380}:6379"
+    volumes:
+      - platform_redis_data:/data
+    command: redis-server --databases 16 --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── MinIO ────────────────────────────────────────────────────────────────────
+  platform-minio:
+    image: minio/minio:latest
+    container_name: platform-minio
+    <<: *restart
+    networks: [platform]
+    environment:
+      MINIO_ROOT_USER: ${PLATFORM_MINIO_ROOT_USER:?PLATFORM_MINIO_ROOT_USER required}
+      MINIO_ROOT_PASSWORD: ${PLATFORM_MINIO_ROOT_PASSWORD:?PLATFORM_MINIO_ROOT_PASSWORD required}
+    ports:
+      - "${PLATFORM_MINIO_PORT:-9002}:9000"
+      - "${PLATFORM_MINIO_CONSOLE_PORT:-9003}:9001"
+    volumes:
+      - platform_minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── LiteLLM Proxy ────────────────────────────────────────────────────────────
+  # master_key enables virtual key management (one key per project with budgets)
+  platform-litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    container_name: platform-litellm
+    <<: *restart
+    networks: [platform]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["--config", "/app/config.yaml", "--host", "0.0.0.0", "--port", "4000", "--num_workers", "4"]
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://host.docker.internal:11434}
+      LLM_FAST_MODEL: ${LLM_FAST_MODEL:-openai/gpt-4o-mini}
+      LLM_BALANCED_MODEL: ${LLM_BALANCED_MODEL:-openai/gpt-4o-mini}
+      LLM_EMBEDDING_MODEL: ${LLM_EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      VOICE_TRANSCRIPT_MODEL: ${VOICE_TRANSCRIPT_MODEL:-openai/whisper-1}
+      LLM_VISION_MODEL: ${LLM_VISION_MODEL:-openai/gpt-4o-mini}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?LITELLM_MASTER_KEY required}
+      LITELLM_DATABASE_URL: postgresql://platform:${PLATFORM_PG_SUPERPASSWORD}@platform-postgres:5432/litellm
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://platform-otel-collector:4317
+      OTEL_SERVICE_NAME: platform-litellm
+    ports:
+      - "${PLATFORM_LITELLM_PORT:-4001}:4000"
+    volumes:
+      - ./infra/litellm/litellm_config.yaml:/app/config.yaml:ro
+    depends_on:
+      platform-redis:
+        condition: service_healthy
+      platform-postgres:
+        condition: service_healthy
+
+  # ── Platform MCP ─────────────────────────────────────────────────────────────
+  # General-purpose tool server: email, SMS, web search, nearby places, transcription
+  # Secrets are written to services/mcp/.env by Terraform (terraform apply -target=null_resource.mcp_deploy)
+  platform-mcp:
+    build:
+      context: ./services/mcp
+    image: platform-mcp:latest
+    container_name: platform-mcp
+    <<: *restart
+    networks: [platform]
+    env_file:
+      - path: ./services/mcp/.env
+        required: false
+    environment:
+      MCP_API_KEY: ${MCP_API_KEY:?MCP_API_KEY required}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-noreply@example.com}
+      TWILIO_ACCOUNT_SID: ${TWILIO_ACCOUNT_SID:-}
+      TWILIO_AUTH_TOKEN: ${TWILIO_AUTH_TOKEN:-}
+      TWILIO_PHONE_NUMBER: ${TWILIO_PHONE_NUMBER:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      LITELLM_PROXY_URL: http://platform-litellm:4000
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+    ports:
+      - "${PLATFORM_MCP_PORT:-8010}:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      platform-litellm:
+        condition: service_started
+
+  # ── OpenTelemetry Collector ──────────────────────────────────────────────────
+  platform-otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    container_name: platform-otel-collector
+    <<: *restart
+    networks: [platform]
+    command: ["--config=/etc/otel/collector-config.yaml"]
+    volumes:
+      - ./infra/otel/collector-config.yaml:/etc/otel/collector-config.yaml:ro
+    ports:
+      - "${PLATFORM_OTEL_GRPC_PORT:-4319}:4317"
+      - "${PLATFORM_OTEL_HTTP_PORT:-4320}:4318"
+      - "${PLATFORM_OTEL_METRICS_PORT:-8890}:8889"
+    depends_on:
+      - platform-jaeger
+
+  # ── Jaeger ───────────────────────────────────────────────────────────────────
+  platform-jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: platform-jaeger
+    <<: *restart
+    user: "0"   # root — required so Jaeger can create badger dirs in named volume
+    networks: [platform]
+    environment:
+      SPAN_STORAGE_TYPE: badger
+      BADGER_EPHEMERAL: "false"
+      BADGER_DIRECTORY_VALUE: /badger/data
+      BADGER_DIRECTORY_KEY: /badger/key
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "${PLATFORM_JAEGER_UI_PORT:-16687}:16686"
+      - "14250:14250"   # internal only — gRPC intake from otel-collector
+    volumes:
+      - platform_jaeger_data:/badger
+
+  # ── Prometheus ───────────────────────────────────────────────────────────────
+  platform-prometheus:
+    image: prom/prometheus:v2.52.0
+    container_name: platform-prometheus
+    <<: *restart
+    networks: [platform]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=30d"
+      - "--storage.tsdb.retention.size=5GB"
+      - "--web.enable-lifecycle"
+    ports:
+      - "${PLATFORM_PROMETHEUS_PORT:-9091}:9090"
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - platform_prometheus_data:/prometheus
+    depends_on:
+      - platform-otel-collector
+
+  # ── Grafana ──────────────────────────────────────────────────────────────────
+  platform-grafana:
+    image: grafana/grafana:10.4.2
+    container_name: platform-grafana
+    <<: *restart
+    networks: [platform]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${PLATFORM_GRAFANA_ADMIN_PASSWORD:?PLATFORM_GRAFANA_ADMIN_PASSWORD required}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "${PLATFORM_GRAFANA_PORT:-3002}:3000"
+    volumes:
+      - platform_grafana_data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - platform-prometheus
+
+  # ── Caddy ────────────────────────────────────────────────────────────────────
+  # Routes are dynamically loaded from infra/caddy/routes/*.caddy
+  # Each project gets one file (written by Terraform)
+  platform-caddy:
+    image: caddy:2-alpine
+    container_name: platform-caddy
+    <<: *restart
+    networks: [platform]
+    ports:
+      - "${PLATFORM_CADDY_HTTP_PORT:-80}:80"
+      - "${PLATFORM_CADDY_HTTPS_PORT:-443}:443"
+      - "${PLATFORM_CADDY_HTTPS_PORT:-443}:443/udp"   # HTTP/3
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./infra/caddy/routes:/etc/caddy/routes:ro
+      - platform_caddy_data:/data
+      - platform_caddy_config:/config

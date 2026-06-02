@@ -1,0 +1,40 @@
+# Secrets — never commit
+.env
+.env.local
+*.env.local
+services/**/.env
+backups/
+
+# Terraform state and provider cache
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/terraform.tfstate.d/
+terraform/**/.terraform/
+terraform/**/terraform.tfstate
+terraform/**/terraform.tfstate.backup
+
+# Generated env files
+terraform/projects/**/.env.platform
+infra/caddy/routes/*.caddy
+
+# Temporary LiteLLM key responses
+/tmp/litellm_key_*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
