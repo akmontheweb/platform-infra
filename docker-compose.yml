@@ -95,7 +95,7 @@ services:
       KC_DB_URL: jdbc:postgresql://platform-keycloak-postgres:5432/keycloak
       KC_DB_USERNAME: ${PLATFORM_KC_DB_USER:?PLATFORM_KC_DB_USER required}
       KC_DB_PASSWORD: ${PLATFORM_KC_DB_PASSWORD:?PLATFORM_KC_DB_PASSWORD required}
-      KC_HOSTNAME: http://${PLATFORM_HOSTNAME:-10.0.0.95}:${PLATFORM_KC_PORT:-8081}
+      KC_HOSTNAME: ${PLATFORM_KC_PUBLIC_URL:-https://auth.latenightcraft.com}
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_PROXY: edge

@@ -112,7 +112,7 @@ echo "[3/6] Exporting realm with users from source container..."
 docker exec "${SRC_KC_CONTAINER}" \
   /opt/keycloak/bin/kc.sh export \
   --realm "${SRC_KC_REALM}" \
-  --users realm_file \
+  --users same_file \
   --file /tmp/realm_export_migration.json 2>&1 | tail -5
 
 docker cp "${SRC_KC_CONTAINER}:/tmp/realm_export_migration.json" "${EXPORT_FILE}"

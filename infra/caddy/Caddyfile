@@ -9,21 +9,21 @@
 # =============================================================================
 
 # Observability — shared across all projects
-http://grafana.{$DOMAIN} {
+grafana.{$DOMAIN} {
     basic_auth {
         {$CADDY_OBS_USER} {$CADDY_OBS_PASSWORD_HASH}
     }
     reverse_proxy platform-grafana:3000
 }
 
-http://jaeger.{$DOMAIN} {
+jaeger.{$DOMAIN} {
     basic_auth {
         {$CADDY_OBS_USER} {$CADDY_OBS_PASSWORD_HASH}
     }
     reverse_proxy platform-jaeger:16686
 }
 
-http://auth.{$DOMAIN} {
+auth.{$DOMAIN} {
     reverse_proxy platform-keycloak:8080
 }
 
