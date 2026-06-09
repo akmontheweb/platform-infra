@@ -329,3 +329,34 @@ services:
       - ./infra/caddy/routes:/etc/caddy/routes:ro
       - platform_caddy_data:/data
       - platform_caddy_config:/config
+
+  # ── Platform Backup ──────────────────────────────────────────────────────────
+  # Nightly pg_dump → MinIO via mc pipe. Bucket platform-backups, prefix
+  # postgres/{server}/{db}/{ts}.dump. 7-day retention enforced by MinIO ILM.
+  # See services/backup/ and BACKUP_RUNBOOK.md.
+  platform-backup:
+    build:
+      context: ./services/backup
+    image: platform-backup:latest
+    container_name: platform-backup
+    <<: *restart
+    networks: [platform]
+    environment:
+      PLATFORM_PG_SUPERUSER: ${PLATFORM_PG_SUPERUSER:?PLATFORM_PG_SUPERUSER required}
+      PLATFORM_PG_SUPERPASSWORD: ${PLATFORM_PG_SUPERPASSWORD:?PLATFORM_PG_SUPERPASSWORD required}
+      PLATFORM_KC_DB_USER: ${PLATFORM_KC_DB_USER:?PLATFORM_KC_DB_USER required}
+      PLATFORM_KC_DB_PASSWORD: ${PLATFORM_KC_DB_PASSWORD:?PLATFORM_KC_DB_PASSWORD required}
+      PLATFORM_MINIO_ROOT_USER: ${PLATFORM_MINIO_ROOT_USER:?PLATFORM_MINIO_ROOT_USER required}
+      PLATFORM_MINIO_ROOT_PASSWORD: ${PLATFORM_MINIO_ROOT_PASSWORD:?PLATFORM_MINIO_ROOT_PASSWORD required}
+      BACKUP_BUCKET: ${BACKUP_BUCKET:-platform-backups}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-7}
+      BACKUP_RUN_ON_START: ${BACKUP_RUN_ON_START:-true}
+      MINIO_URL: http://platform-minio:9000
+      TZ: UTC
+    depends_on:
+      platform-postgres:
+        condition: service_healthy
+      platform-keycloak-postgres:
+        condition: service_healthy
+      platform-minio:
+        condition: service_started

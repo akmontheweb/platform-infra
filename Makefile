@@ -149,10 +149,24 @@ migrate-all: ## Run all three migrations in the correct order
 	@echo "Step 3/3: MinIO"
 	$(MAKE) migrate-minio
 
+# ─── Backups (nightly pg_dump → MinIO) ────────────────────────────────────────
+
+backup-now: ## Run a backup immediately (in addition to the 03:00 UTC cron)
+	docker compose exec platform-backup /opt/backup/backup.sh
+
+backup-list: ## List dumps currently in MinIO platform-backups bucket
+	docker compose exec platform-backup mc ls --recursive platform/platform-backups/postgres/
+
+backup-logs: ## Tail platform-backup logs (most recent cron run)
+	docker compose logs --tail=200 platform-backup
+
+restore-drill: ## Cold-restore latest dump for a DB into a scratch container: make restore-drill DB=cue
+	bash scripts/restore-drill.sh $(DB)
+
 # ─── Utilities ────────────────────────────────────────────────────────────────
 
-backups-ls: ## List migration backup files
+backups-ls: ## List migration backup files (local; from migrate-*.sh scripts)
 	@ls -lh backups/ 2>/dev/null || echo "No backups yet (backups/ directory empty or missing)"
 
-clean-backups: ## ⚠ Delete backups older than 7 days
+clean-backups: ## ⚠ Delete LOCAL migration backups older than 7 days
 	find backups/ -mtime +7 -delete && echo "Old backups removed."

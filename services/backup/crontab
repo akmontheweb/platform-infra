@@ -1,0 +1,6 @@
+# platform-backup crontab — nightly Postgres dumps to MinIO.
+#
+# 03:00 UTC keeps the dump window out of the EU/US daytime workload.
+# Source /etc/backup.env first because Alpine crond does NOT inherit the
+# parent process env. Stderr+stdout are tagged so docker logs show them.
+0 3 * * *	. /etc/backup.env && /opt/backup/backup.sh 2>&1 | awk '{print "[cron] " $0}'
