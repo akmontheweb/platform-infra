@@ -20,6 +20,34 @@ version: "3.9"
 x-restart: &restart
   restart: unless-stopped
 
+# wal-g env shared across the two Postgres services. Per-server WALG_S3_PREFIX
+# is set inline on each service so each cluster gets its own bucket prefix.
+x-walg-env: &walg-env
+  AWS_ACCESS_KEY_ID: ${PLATFORM_MINIO_ROOT_USER:?PLATFORM_MINIO_ROOT_USER required}
+  AWS_SECRET_ACCESS_KEY: ${PLATFORM_MINIO_ROOT_PASSWORD:?PLATFORM_MINIO_ROOT_PASSWORD required}
+  AWS_ENDPOINT: http://platform-minio:9000
+  AWS_REGION: us-east-1                # MinIO ignores this but wal-g requires it
+  AWS_S3_FORCE_PATH_STYLE: "true"
+  WALG_COMPRESSION_METHOD: brotli
+
+# postgres command-line args that enable WAL archiving + PITR. Reused across
+# both Postgres services via YAML anchor. archive_timeout=60s bounds RPO at
+# 60s on idle clusters; under write load WAL flushes much more frequently.
+x-pg-wal-command: &pg-wal-command
+  - postgres
+  - -c
+  - archive_mode=on
+  - -c
+  - archive_command=wal-g wal-push %p
+  - -c
+  - archive_timeout=60s
+  - -c
+  - wal_level=replica
+  - -c
+  - max_wal_senders=3
+  - -c
+  - restore_command=wal-g wal-fetch %f %p
+
 networks:
   # Explicit name — projects reference this as an external network
   platform:
@@ -42,16 +70,24 @@ volumes:
 
 services:
 
-  # ── PostgreSQL 16 + pgvector ────────────────────────────────────────────────
+  # ── PostgreSQL 16 + pgvector + wal-g ────────────────────────────────────────
+  # Image is built from services/postgres/ — pgvector/pgvector:pg16 plus the
+  # wal-g binary and a weekly base-backup cron. archive_command pushes every
+  # flushed WAL segment to MinIO under the WALG_S3_PREFIX below.
   platform-postgres:
-    image: pgvector/pgvector:pg16   # TODO(week-2): pin by digest after first prod pull
+    build:
+      context: ./services/postgres
+    image: platform-postgres:latest
     container_name: platform-postgres
     <<: *restart
     networks: [platform]
     environment:
+      <<: *walg-env
       POSTGRES_USER: ${PLATFORM_PG_SUPERUSER:?PLATFORM_PG_SUPERUSER required}
       POSTGRES_PASSWORD: ${PLATFORM_PG_SUPERPASSWORD:?PLATFORM_PG_SUPERPASSWORD required}
       POSTGRES_DB: postgres
+      WALG_S3_PREFIX: s3://${BACKUP_BUCKET:-platform-backups}/wal-g/platform-postgres
+    command: *pg-wal-command
     ports:
       - "${PLATFORM_PG_PORT:-5433}:5432"
     volumes:
@@ -62,16 +98,21 @@ services:
       timeout: 5s
       retries: 5
 
-  # ── Keycloak PostgreSQL ─────────────────────────────────────────────────────
+  # ── Keycloak PostgreSQL + wal-g ─────────────────────────────────────────────
   platform-keycloak-postgres:
-    image: pgvector/pgvector:pg16   # TODO(week-2): pin by digest after first prod pull
+    build:
+      context: ./services/postgres
+    image: platform-postgres:latest
     container_name: platform-keycloak-postgres
     <<: *restart
     networks: [platform]
     environment:
+      <<: *walg-env
       POSTGRES_DB: keycloak
       POSTGRES_USER: ${PLATFORM_KC_DB_USER:?PLATFORM_KC_DB_USER required}
       POSTGRES_PASSWORD: ${PLATFORM_KC_DB_PASSWORD:?PLATFORM_KC_DB_PASSWORD required}
+      WALG_S3_PREFIX: s3://${BACKUP_BUCKET:-platform-backups}/wal-g/platform-keycloak-postgres
+    command: *pg-wal-command
     volumes:
       - platform_keycloak_postgres_data:/var/lib/postgresql/data
     healthcheck:

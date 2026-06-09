@@ -1,0 +1,6 @@
+# platform-postgres weekly base backup
+# Sunday 02:00 UTC. WAL segments are pushed continuously via archive_command;
+# this gives PITR a recovery starting point and trims wal-g's retention.
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+0 2 * * 0	postgres /opt/wal-g/base-backup.sh

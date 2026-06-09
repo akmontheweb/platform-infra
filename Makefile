@@ -151,17 +151,45 @@ migrate-all: ## Run all three migrations in the correct order
 
 # ─── Backups (nightly pg_dump → MinIO) ────────────────────────────────────────
 
-backup-now: ## Run a backup immediately (in addition to the 03:00 UTC cron)
+backup-now: ## Run a logical backup immediately (in addition to the 03:00 UTC cron)
 	docker compose exec platform-backup /opt/backup/backup.sh
 
-backup-list: ## List dumps currently in MinIO platform-backups bucket
+backup-list: ## List logical dumps currently in MinIO platform-backups bucket
 	docker compose exec platform-backup mc ls --recursive platform/platform-backups/postgres/
 
 backup-logs: ## Tail platform-backup logs (most recent cron run)
 	docker compose logs --tail=200 platform-backup
 
-restore-drill: ## Cold-restore latest dump for a DB into a scratch container: make restore-drill DB=cue
+restore-drill: ## Cold-restore latest logical dump for a DB into a scratch container: make restore-drill DB=cue
 	bash scripts/restore-drill.sh $(DB)
+
+# ─── WAL archiving + PITR ────────────────────────────────────────────────────
+
+wal-status: ## Show pg_stat_archiver for both PG servers (archived/failed counters)
+	@echo "── platform-postgres ──"
+	@docker compose exec platform-postgres psql -U $${PLATFORM_PG_SUPERUSER:-platform} -d postgres \
+		-c "SELECT archived_count, failed_count, last_archived_time, last_failed_time, last_failed_wal FROM pg_stat_archiver;"
+	@echo "── platform-keycloak-postgres ──"
+	@docker compose exec platform-keycloak-postgres psql -U $${PLATFORM_KC_DB_USER:-keycloak} -d keycloak \
+		-c "SELECT archived_count, failed_count, last_archived_time, last_failed_time, last_failed_wal FROM pg_stat_archiver;"
+
+wal-list: ## List wal-g backups (base backups, not WAL segments) for both clusters
+	@echo "── platform-postgres ──"
+	@docker compose exec platform-postgres su postgres -c "wal-g backup-list" || true
+	@echo "── platform-keycloak-postgres ──"
+	@docker compose exec platform-keycloak-postgres su postgres -c "wal-g backup-list" || true
+
+wal-base-backup: ## Run an immediate base backup of platform-postgres (in addition to weekly cron)
+	docker compose exec platform-postgres /opt/wal-g/base-backup.sh
+
+wal-base-backup-keycloak: ## Run an immediate base backup of platform-keycloak-postgres
+	docker compose exec platform-keycloak-postgres /opt/wal-g/base-backup.sh
+
+wal-logs: ## Tail /var/log/wal-g.log on platform-postgres (base-backup history)
+	docker compose exec platform-postgres tail -200 /var/log/wal-g.log
+
+wal-restore-drill: ## PITR drill: restore from MinIO into scratch container. make wal-restore-drill [CLUSTER=postgres|keycloak] [PITR='YYYY-MM-DD HH:MM:SS UTC']
+	bash scripts/wal-restore-drill.sh $(CLUSTER) "$(PITR)"
 
 # ─── Utilities ────────────────────────────────────────────────────────────────
 
