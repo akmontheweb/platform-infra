@@ -1,0 +1,70 @@
+# Alertmanager configuration. Values referenced as $ENV are substituted
+# from the env block on platform-alertmanager (compose service). The
+# SMTP creds are the same Resend account already used by MCP/email blasts.
+
+global:
+  resolve_timeout: 5m
+  # Resend's SMTP gateway. Default port 587 = STARTTLS (Resend supports
+  # 465 implicit-TLS too; if you switch, set smtp_require_tls: false).
+  smtp_smarthost: '${SMTP_HOST}:${SMTP_PORT}'
+  smtp_from: '${SMTP_FROM}'
+  smtp_auth_username: '${SMTP_USER}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+# Routing tree. We classify on severity (set by the alert rule labels):
+#   critical → page (SMS + email)
+#   warning  → email only
+# Group by alertname so a 10-message burst arrives as one notification.
+route:
+  receiver: email
+  group_by: ['alertname', 'cluster', 'service']
+  group_wait: 30s          # wait 30s for related alerts before firing
+  group_interval: 5m       # re-notify per group every 5m if still firing
+  repeat_interval: 12h     # re-page every 12h for still-active alerts
+
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: page
+      continue: true       # also send to default email route below
+      group_wait: 10s
+      repeat_interval: 1h  # critical: re-page hourly
+
+# Inhibition — a critical alert suppresses the matching warning so the
+# operator doesn't get two notifications for the same root cause.
+inhibit_rules:
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warning"
+    equal: ['alertname', 'cluster', 'service']
+
+receivers:
+  - name: email
+    email_configs:
+      - to: '${ALERTS_TO_EMAIL}'
+        send_resolved: true
+        headers:
+          Subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+
+  - name: page
+    # Both channels in parallel: SMS (Twilio via webhook) AND email.
+    # The webhook URL is set by env — leave ALERTS_SMS_WEBHOOK_URL blank
+    # to disable SMS gracefully (webhook_config with empty URL fails fast
+    # but the email_config still delivers).
+    email_configs:
+      - to: '${ALERTS_TO_EMAIL}'
+        send_resolved: true
+        headers:
+          Subject: '[CRITICAL] {{ .CommonLabels.alertname }}'
+    webhook_configs:
+      - url: '${ALERTS_SMS_WEBHOOK_URL}'
+        send_resolved: false   # SMS resolves: skip the noise
+        max_alerts: 5          # cap fan-out so a 100-alert burst doesn't burn the Twilio quota
+        http_config:
+          # The bridge endpoint (platform-mcp or a sidecar) authenticates
+          # with whatever it requires; bearer-token shown here is a hint.
+          # Leave commented out if your bridge doesn't need auth.
+          # authorization:
+          #   credentials: '${ALERTS_SMS_TOKEN}'

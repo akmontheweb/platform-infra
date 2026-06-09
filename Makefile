@@ -191,6 +191,35 @@ wal-logs: ## Tail /var/log/wal-g.log on platform-postgres (base-backup history)
 wal-restore-drill: ## PITR drill: restore from MinIO into scratch container. make wal-restore-drill [CLUSTER=postgres|keycloak] [PITR='YYYY-MM-DD HH:MM:SS UTC']
 	bash scripts/wal-restore-drill.sh $(CLUSTER) "$(PITR)"
 
+# ─── Alerting (Week 3) ────────────────────────────────────────────────────────
+
+alerts-status: ## Show current alert states (firing, pending, inactive)
+	@docker compose exec platform-prometheus wget -qO- 'http://localhost:9090/api/v1/alerts' \
+		| python3 -m json.tool 2>/dev/null || \
+		docker compose exec platform-prometheus wget -qO- 'http://localhost:9090/api/v1/alerts'
+
+alerts-rules: ## Show active rule groups + thresholds
+	@docker compose exec platform-prometheus wget -qO- 'http://localhost:9090/api/v1/rules' \
+		| python3 -m json.tool 2>/dev/null || \
+		docker compose exec platform-prometheus wget -qO- 'http://localhost:9090/api/v1/rules'
+
+alerts-reload: ## Hot-reload prometheus rules after editing infra/prometheus/rules/*.yml
+	curl -fsS -X POST http://localhost:$${PLATFORM_PROMETHEUS_PORT:-9091}/-/reload && echo "prometheus reloaded"
+
+alerts-am-reload: ## Hot-reload alertmanager config (after editing alertmanager.yml.tmpl + bouncing the container — see runbook)
+	docker compose restart platform-alertmanager
+
+alerts-test: ## Fire a synthetic test alert through the full pipeline (renders alertmanager → email/SMS)
+	@curl -fsS -X POST -H 'Content-Type: application/json' \
+		http://localhost:$${PLATFORM_ALERTMANAGER_PORT:-9094}/api/v2/alerts \
+		-d '[{"labels":{"alertname":"TestAlert","severity":"warning","service":"test"},"annotations":{"summary":"test alert from make alerts-test","description":"if you got this you have working alerting"},"startsAt":"'$$(date -u +%Y-%m-%dT%H:%M:%SZ)'"}]' \
+		&& echo "fired — expect email within 30s"
+
+alerts-silence: ## Create a 1h silence by alertname: make alerts-silence ALERT=APIHighErrorRate
+	@curl -fsS -X POST -H 'Content-Type: application/json' \
+		http://localhost:$${PLATFORM_ALERTMANAGER_PORT:-9094}/api/v2/silences \
+		-d '{"matchers":[{"name":"alertname","value":"$(ALERT)","isRegex":false}],"startsAt":"'$$(date -u +%Y-%m-%dT%H:%M:%SZ)'","endsAt":"'$$(date -u -d "+1 hour" +%Y-%m-%dT%H:%M:%SZ)'","createdBy":"$(USER)","comment":"silenced via make alerts-silence"}'
+
 # ─── Utilities ────────────────────────────────────────────────────────────────
 
 backups-ls: ## List migration backup files (local; from migrate-*.sh scripts)

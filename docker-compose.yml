@@ -65,6 +65,7 @@ volumes:
   platform_jaeger_data:
   platform_prometheus_data:
   platform_grafana_data:
+  platform_alertmanager_data:
   platform_caddy_data:
   platform_caddy_config:
 
@@ -327,6 +328,7 @@ services:
       - "${PLATFORM_PROMETHEUS_PORT:-9091}:9090"
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./infra/prometheus/rules:/etc/prometheus/rules:ro
       - platform_prometheus_data:/prometheus
     depends_on:
       - platform-otel-collector
@@ -346,8 +348,114 @@ services:
     volumes:
       - platform_grafana_data:/var/lib/grafana
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      # dashboards.yaml provisioning expects JSONs at /var/lib/grafana/dashboards.
+      # The named volume above covers /var/lib/grafana writeable state; this
+      # bind-mount provides the readonly dashboard JSONs Grafana auto-loads.
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - platform-prometheus
+
+  # ── Alertmanager ─────────────────────────────────────────────────────────────
+  # Fans Prometheus alerts out to email (Resend SMTP) for warnings and
+  # email+SMS (Twilio via webhook) for critical signals. See
+  # infra/alertmanager/alertmanager.yml + ALERTING_RUNBOOK.md.
+  platform-alertmanager:
+    # Built from services/alertmanager/ — prom/alertmanager:v0.27.0 + a tiny
+    # envsubst shim that renders alertmanager.yml.tmpl → alertmanager.yml at
+    # startup. Upstream alertmanager doesn't expand ${VAR} in its config
+    # (prometheus/alertmanager#3108) so we do it ourselves.
+    build:
+      context: ./services/alertmanager
+    image: platform-alertmanager:latest
+    container_name: platform-alertmanager
+    <<: *restart
+    networks: [platform]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+      - "--web.external-url=http://platform-alertmanager:9093"
+    environment:
+      # Resend SMTP creds — alertmanager template substitutes these via
+      # envsubst at startup. Same SMTP_* vars MCP already uses, so a single
+      # Resend account covers user mail and ops alerts.
+      SMTP_HOST: ${SMTP_HOST:-smtp.resend.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:?SMTP_USER required (Resend api key user)}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:?SMTP_PASSWORD required (Resend api key)}
+      SMTP_FROM: ${SMTP_FROM:?SMTP_FROM required (verified sender on your Resend domain)}
+      ALERTS_TO_EMAIL: ${ALERTS_TO_EMAIL:?ALERTS_TO_EMAIL required (on-call distribution list)}
+      # Optional SMS bridge — leave blank to disable SMS. Operator wires this
+      # to platform-mcp or a tiny Twilio sidecar; see ALERTING_RUNBOOK.md.
+      ALERTS_SMS_WEBHOOK_URL: ${ALERTS_SMS_WEBHOOK_URL:-}
+    ports:
+      - "${PLATFORM_ALERTMANAGER_PORT:-9094}:9093"
+    volumes:
+      # Template — entrypoint renders to alertmanager.yml via envsubst.
+      - ./infra/alertmanager/alertmanager.yml.tmpl:/etc/alertmanager/alertmanager.yml.tmpl:ro
+      - platform_alertmanager_data:/alertmanager
+
+  # ── Postgres exporter (platform-postgres) ────────────────────────────────────
+  postgres-exporter-platform:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0   # TODO(week-3): pin by digest
+    container_name: postgres-exporter-platform
+    <<: *restart
+    networks: [platform]
+    environment:
+      DATA_SOURCE_NAME: postgresql://${PLATFORM_PG_SUPERUSER:?}:${PLATFORM_PG_SUPERPASSWORD:?}@platform-postgres:5432/postgres?sslmode=disable
+      PG_EXPORTER_INCLUDE_DATABASES: "cue,litellm,postgres"
+    depends_on:
+      platform-postgres:
+        condition: service_healthy
+
+  # ── Postgres exporter (platform-keycloak-postgres) ───────────────────────────
+  postgres-exporter-keycloak:
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0   # TODO(week-3): pin by digest
+    container_name: postgres-exporter-keycloak
+    <<: *restart
+    networks: [platform]
+    environment:
+      DATA_SOURCE_NAME: postgresql://${PLATFORM_KC_DB_USER:?}:${PLATFORM_KC_DB_PASSWORD:?}@platform-keycloak-postgres:5432/keycloak?sslmode=disable
+      PG_EXPORTER_INCLUDE_DATABASES: "keycloak"
+    depends_on:
+      platform-keycloak-postgres:
+        condition: service_healthy
+
+  # ── Redis exporter ───────────────────────────────────────────────────────────
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61.0   # TODO(week-3): pin by digest
+    container_name: redis-exporter
+    <<: *restart
+    networks: [platform]
+    environment:
+      REDIS_ADDR: redis://platform-redis:6379
+      REDIS_PASSWORD: ${PLATFORM_REDIS_PASSWORD:?PLATFORM_REDIS_PASSWORD required}
+      # Surface XINFO STREAM metrics so DLQ depth + consumer lag alerts work.
+      # Stream keys: stream:ingest, stream:decompose, stream:draft, stream:research,
+      # stream:route, stream:ws:push, stream:images, stream:geo (8 streams).
+      REDIS_EXPORTER_CHECK_STREAMS: "stream:ingest,stream:decompose,stream:draft,stream:research,stream:route,stream:ws:push,stream:images,stream:geo,stream:ingest:dead,stream:decompose:dead,stream:draft:dead,stream:research:dead,stream:route:dead,stream:ws:push:dead,stream:images:dead,stream:geo:dead"
+    depends_on:
+      platform-redis:
+        condition: service_healthy
+
+  # ── cAdvisor — container metrics including OOM kills ────────────────────────
+  # Needs docker socket + /sys + /var/lib/docker mounts; runs as root so it
+  # can read cgroup stats for every container on the host.
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1   # TODO(week-3): pin by digest
+    container_name: cadvisor
+    <<: *restart
+    networks: [platform]
+    privileged: true
+    command:
+      - "--housekeeping_interval=30s"
+      - "--docker_only=true"
+      - "--store_container_labels=false"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /dev/disk:/dev/disk:ro
 
   # ── Caddy ────────────────────────────────────────────────────────────────────
   # Routes are dynamically loaded from infra/caddy/routes/*.caddy

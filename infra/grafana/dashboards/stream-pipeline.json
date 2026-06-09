@@ -1,0 +1,122 @@
+{
+  "uid": "cue-stream-pipeline",
+  "title": "Cue Stream Pipeline",
+  "tags": ["cue", "streams", "redis"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "stream",
+        "label": "Stream",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(redis_stream_length, stream)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "selected": false, "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total DLQ depth",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 },
+              { "color": "red", "value": 50 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "sum(redis_stream_length{stream=~\".*:dead\"})", "refId": "A" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total pending (all groups)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(redis_stream_group_messages_pending)", "refId": "A" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Active consumer groups",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "count(redis_stream_group_consumers)", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Total stream length",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(redis_stream_length{stream!~\".*:dead\"})", "refId": "A" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Stream length over time",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "redis_stream_length{stream=~\"$stream\", stream!~\".*:dead\"}",
+          "refId": "A",
+          "legendFormat": "{{ stream }}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "DLQ depth per stream",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "redis_stream_length{stream=~\".*:dead\"}",
+          "refId": "A",
+          "legendFormat": "{{ stream }}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Pending PEL per group (consumer backpressure)",
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "redis_stream_group_messages_pending{stream=~\"$stream\"}",
+          "refId": "A",
+          "legendFormat": "{{ stream }} / {{ group }}"
+        }
+      ]
+    }
+  ]
+}

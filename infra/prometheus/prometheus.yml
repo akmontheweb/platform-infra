@@ -2,19 +2,78 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Rule files — alert thresholds for the 10 critical signals (see
+# rules/alerts.yml for the inventory).
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+# Alertmanager — single instance on the platform network.
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "platform-alertmanager:9093"
+
 scrape_configs:
-  # ── OTel Collector (exposes all project metrics via /metrics) ─
+  # ── OTel Collector (exposes all project metrics via /metrics) ─────────
+  # Cue API / ai-orchestrator / voice-processor ship metrics through OTel.
   - job_name: otel-collector
     static_configs:
       - targets: ["platform-otel-collector:8889"]
 
-  # ── Prometheus self-scrape ────────────────────────────────────
+  # ── Prometheus self-scrape ────────────────────────────────────────────
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
 
-  # ── Jaeger internal metrics ───────────────────────────────────
+  # ── Jaeger internal metrics ───────────────────────────────────────────
   - job_name: jaeger
     static_configs:
       - targets: ["platform-jaeger:14269"]
     metrics_path: /metrics
+
+  # ── Alertmanager self-metrics ─────────────────────────────────────────
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["platform-alertmanager:9093"]
+
+  # ── Postgres exporters ────────────────────────────────────────────────
+  # Two clusters → two exporters, each scoped to its server's auth creds.
+  - job_name: postgres-platform
+    static_configs:
+      - targets: ["postgres-exporter-platform:9187"]
+        labels:
+          cluster: platform-postgres
+
+  - job_name: postgres-keycloak
+    static_configs:
+      - targets: ["postgres-exporter-keycloak:9187"]
+        labels:
+          cluster: platform-keycloak-postgres
+
+  # ── Redis exporter ────────────────────────────────────────────────────
+  # Surfaces info memory, info clients, info commandstats, and per-stream
+  # length/lag (REDIS_EXPORTER_CHECK_STREAMS configured on the exporter).
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  # ── cAdvisor — per-container CPU/memory/OOM ──────────────────────────
+  - job_name: cadvisor
+    static_configs:
+      - targets: ["cadvisor:8080"]
+    metric_relabel_configs:
+      # Drop high-cardinality per-process metrics we won't dashboard or alert
+      # on — keeps tsdb retention healthy on the single-host stack.
+      - source_labels: [__name__]
+        regex: 'container_tasks_state|container_memory_failures_total'
+        action: drop
+
+  # ── MinIO cluster metrics ─────────────────────────────────────────────
+  # MinIO ships native Prometheus metrics; bearer-jwt auth is required
+  # but we use the public endpoint here (intra-network only).
+  - job_name: minio
+    metrics_path: /minio/v2/metrics/cluster
+    scheme: http
+    static_configs:
+      - targets: ["platform-minio:9000"]

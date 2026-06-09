@@ -1,0 +1,181 @@
+{
+  "uid": "cue-db-redis-health",
+  "title": "Cue DB + Redis Health",
+  "tags": ["cue", "db", "redis"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-3h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "cluster",
+        "label": "PG cluster",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(pg_stat_activity_count, cluster)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": { "selected": false, "text": "All", "value": "$__all" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "PG connections / max",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.6 },
+              { "color": "red", "value": 0.85 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "max by (cluster) (sum by (cluster) (pg_stat_activity_count{cluster=~\"$cluster\"}) / on(cluster) group_left pg_settings_max_connections)",
+          "refId": "A",
+          "legendFormat": "{{ cluster }}"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "WAL archive failures (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        { "expr": "sum(increase(pg_stat_archiver_failed_count[5m]))", "refId": "A" }
+      ],
+      "options": { "colorMode": "background" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Redis memory used",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "decbytes" }, "overrides": [] },
+      "targets": [
+        { "expr": "redis_memory_used_bytes", "refId": "A" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Redis ops/sec",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "rate(redis_commands_processed_total[1m])", "refId": "A" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "PG active connections by cluster",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (cluster) (pg_stat_activity_count{cluster=~\"$cluster\"})",
+          "refId": "A",
+          "legendFormat": "{{ cluster }}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "PG database size",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "decbytes" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "pg_database_size_bytes{cluster=~\"$cluster\"}",
+          "refId": "A",
+          "legendFormat": "{{ cluster }} / {{ datname }}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "WAL archiver: archived vs failed",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(pg_stat_archiver_archived_count[5m])",
+          "refId": "A",
+          "legendFormat": "{{ cluster }} archived/s"
+        },
+        {
+          "expr": "rate(pg_stat_archiver_failed_count[5m])",
+          "refId": "B",
+          "legendFormat": "{{ cluster }} failed/s"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Redis memory + clients",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes",
+          "refId": "A",
+          "legendFormat": "memory used"
+        },
+        {
+          "expr": "redis_connected_clients",
+          "refId": "B",
+          "legendFormat": "clients"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "MinIO disk free",
+      "gridPos": { "h": 7, "w": 24, "x": 0, "y": 22 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "decbytes" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "minio_node_disk_free_bytes",
+          "refId": "A",
+          "legendFormat": "{{ server }}"
+        }
+      ]
+    }
+  ]
+}

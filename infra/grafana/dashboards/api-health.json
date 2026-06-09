@@ -1,0 +1,114 @@
+{
+  "uid": "cue-api-health",
+  "title": "Cue API Health",
+  "tags": ["cue", "api"],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": { "list": [] },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Request rate (req/s)",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "targets": [
+        { "expr": "sum(rate(http_server_duration_count[5m]))", "refId": "A", "legendFormat": "total" }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "5xx error rate (5m)",
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 0.005 },
+              { "color": "red", "value": 0.02 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_duration_count{http_status_code=~\"5..\"}[5m])) / clamp_min(sum(rate(http_server_duration_count[5m])), 1)",
+          "refId": "A",
+          "legendFormat": "5xx ratio"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" }
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "p95 latency",
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))",
+          "refId": "A",
+          "legendFormat": "p95"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "In-flight requests",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(http_server_active_requests)", "refId": "A" }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Request rate by status class",
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum by (status_class) (rate(http_server_duration_count[1m]) * on() group_left (status_class) label_replace(http_server_duration_count, \"status_class\", \"$1xx\", \"http_status_code\", \"(.).*\"))",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Latency percentiles (s)",
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 4 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum by (le) (rate(http_server_duration_bucket[5m])))", "refId": "A", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))", "refId": "B", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_duration_bucket[5m])))", "refId": "C", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Recent alerts firing for service=api",
+      "gridPos": { "h": 6, "w": 24, "x": 0, "y": 13 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "ALERTS{service=\"api\", alertstate=\"firing\"}", "refId": "A", "format": "table", "instant": true }
+      ]
+    }
+  ]
+}
