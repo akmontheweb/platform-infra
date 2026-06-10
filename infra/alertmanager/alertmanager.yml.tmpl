@@ -50,21 +50,20 @@ receivers:
 
   - name: page
     # Both channels in parallel: SMS (Twilio via webhook) AND email.
-    # The webhook URL is set by env — leave ALERTS_SMS_WEBHOOK_URL blank
-    # to disable SMS gracefully (webhook_config with empty URL fails fast
-    # but the email_config still delivers).
+    # The webhook URL is set by env — leave ALERTS_SMS_WEBHOOK_URL blank to
+    # disable SMS. The entrypoint strips the # SMS_BLOCK_START … END block
+    # when the URL is empty so alertmanager doesn't reject an unparseable URL.
     email_configs:
       - to: '${ALERTS_TO_EMAIL}'
         send_resolved: true
         headers:
           Subject: '[CRITICAL] {{ .CommonLabels.alertname }}'
+    # SMS_BLOCK_START
     webhook_configs:
       - url: '${ALERTS_SMS_WEBHOOK_URL}'
         send_resolved: false   # SMS resolves: skip the noise
         max_alerts: 5          # cap fan-out so a 100-alert burst doesn't burn the Twilio quota
-        http_config:
-          # The bridge endpoint (platform-mcp or a sidecar) authenticates
-          # with whatever it requires; bearer-token shown here is a hint.
-          # Leave commented out if your bridge doesn't need auth.
-          # authorization:
-          #   credentials: '${ALERTS_SMS_TOKEN}'
+        # http_config:
+        #   authorization:
+        #     credentials: '${ALERTS_SMS_TOKEN}'
+    # SMS_BLOCK_END

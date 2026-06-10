@@ -13,7 +13,7 @@
 # for the cron job to source.
 # =============================================================================
 ARG PGVECTOR_TAG=pg16
-ARG WALG_VERSION=v3.0.3
+ARG WALG_VERSION=v3.0.8
 
 FROM pgvector/pgvector:${PGVECTOR_TAG}
 
@@ -28,9 +28,9 @@ RUN apt-get update \
         curl \
         tini \
  && curl -fsSL -o /tmp/wal-g.tar.gz \
-        "https://github.com/wal-g/wal-g/releases/download/${WALG_VERSION}/wal-g-pg-ubuntu-22.04-amd64.tar.gz" \
+        "https://github.com/wal-g/wal-g/releases/download/${WALG_VERSION}/wal-g-pg-22.04-amd64.tar.gz" \
  && tar -xzf /tmp/wal-g.tar.gz -C /usr/local/bin/ \
- && mv /usr/local/bin/wal-g-pg-ubuntu-22.04-amd64 /usr/local/bin/wal-g \
+ && mv /usr/local/bin/wal-g-pg-22.04-amd64 /usr/local/bin/wal-g \
  && chmod 0755 /usr/local/bin/wal-g \
  && rm /tmp/wal-g.tar.gz \
  && apt-get clean \

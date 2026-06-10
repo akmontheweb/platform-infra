@@ -3,6 +3,8 @@ model_list:
   - model_name: fast-model
     litellm_params:
       model: os.environ/LLM_FAST_MODEL
+      rpm: 600
+      tpm: 1000000
     model_info:
       mode: chat
 
@@ -10,6 +12,8 @@ model_list:
   - model_name: balanced-model
     litellm_params:
       model: os.environ/LLM_BALANCED_MODEL
+      rpm: 300
+      tpm: 500000
     model_info:
       mode: chat
 
@@ -18,6 +22,8 @@ model_list:
     litellm_params:
       model: openai/gpt-4o-mini
       api_key: os.environ/OPENAI_API_KEY
+      rpm: 300
+      tpm: 500000
     model_info:
       mode: chat
 
@@ -26,6 +32,8 @@ model_list:
     litellm_params:
       model: ollama/mistral
       api_base: os.environ/OLLAMA_BASE_URL
+      rpm: 600
+      tpm: 1000000
     model_info:
       mode: chat
 
@@ -33,6 +41,8 @@ model_list:
   - model_name: embedding
     litellm_params:
       model: os.environ/LLM_EMBEDDING_MODEL
+      rpm: 1200
+      tpm: 2000000
     model_info:
       mode: embedding
 
@@ -40,6 +50,8 @@ model_list:
   - model_name: transcription-model
     litellm_params:
       model: os.environ/VOICE_TRANSCRIPT_MODEL
+      rpm: 60
+      tpm: 50000
     model_info:
       mode: audio_transcription
 
@@ -47,6 +59,8 @@ model_list:
   - model_name: vision-model
     litellm_params:
       model: os.environ/LLM_VISION_MODEL
+      rpm: 120
+      tpm: 200000
     model_info:
       mode: chat
 
@@ -55,6 +69,11 @@ general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   # Database required for virtual key storage
   database_url: os.environ/LITELLM_DATABASE_URL
+  # Default budget applied when an internal user / virtual key is created via
+  # /key/generate without an explicit max_budget. Operators should override
+  # per-project via the LiteLLM admin API for higher tiers.
+  default_internal_user_budget: 5
+  default_internal_user_budget_duration: 30d
 
 litellm_settings:
   fallbacks:
@@ -63,6 +82,13 @@ litellm_settings:
   num_retries: 2
   request_timeout: 30
   drop_params: true
+
+  # Proxy-wide cost ceiling. A runaway agent loop bills against this pool;
+  # once spent, requests 429 until budget_duration resets. Operator raises
+  # this as real usage grows. Per-key budgets (see virtual keys) are
+  # checked first, so this is the absolute backstop.
+  max_budget: 50
+  budget_duration: 30d
 
   # Semantic response cache — Redis DB 1 (reserved for LiteLLM)
   cache: true
@@ -81,3 +107,14 @@ litellm_settings:
 
 environment_variables:
   OTEL_EXPORTER: "otlp_grpc"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Virtual key provisioning (operator):
+#   curl -X POST $LITELLM_PROXY_URL/key/generate \
+#     -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+#     -H "Content-Type: application/json" \
+#     -d '{"key_alias":"cue-prod","max_budget":25,"budget_duration":"30d",
+#          "rpm_limit":300,"tpm_limit":500000,"models":["fast-model","balanced-model","openai-mini","embedding","transcription-model","vision-model"]}'
+# The returned `key` value goes into Cue's `LITELLM_API_KEY` env. To rotate,
+# generate a new key, redeploy with the new value, then DELETE the old key.
+# ─────────────────────────────────────────────────────────────────────────────

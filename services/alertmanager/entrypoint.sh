@@ -1,6 +1,11 @@
 #!/usr/bin/env sh
-# Render alertmanager.yml.tmpl → alertmanager.yml via envsubst, then exec
-# the upstream alertmanager binary with whatever args compose passed.
+# Render alertmanager.yml.tmpl → alertmanager.yml via sed over an explicit
+# allowlist, then exec the upstream alertmanager binary.
+#
+# Why allowlist: the alertmanager template uses {{ ... }} for its own
+# templating; we only want to substitute the env vars we name. Adding a new
+# placeholder to the template means adding a corresponding sed expression
+# here.
 set -e
 
 TMPL=/etc/alertmanager/alertmanager.yml.tmpl
@@ -11,12 +16,28 @@ if [ ! -f "${TMPL}" ]; then
   exit 1
 fi
 
-# Whitelist only the vars we actually want to substitute. envsubst
-# without an explicit list would gobble any ${...} including alertmanager's
-# own template syntax inside annotations.
-VARS='${SMTP_HOST} ${SMTP_PORT} ${SMTP_USER} ${SMTP_PASSWORD} ${SMTP_FROM} ${ALERTS_TO_EMAIL} ${ALERTS_SMS_WEBHOOK_URL}'
+# Escape sed metacharacters in the replacement string so secrets containing
+# &, /, or backslash don't break the substitution or inject sed commands.
+_sed_escape() {
+  printf '%s' "$1" | sed -e 's/[\/&]/\\&/g'
+}
 
-envsubst "${VARS}" < "${TMPL}" > "${OUT}"
+sed \
+  -e "s|\${SMTP_HOST}|$(_sed_escape "${SMTP_HOST}")|g" \
+  -e "s|\${SMTP_PORT}|$(_sed_escape "${SMTP_PORT}")|g" \
+  -e "s|\${SMTP_USER}|$(_sed_escape "${SMTP_USER}")|g" \
+  -e "s|\${SMTP_PASSWORD}|$(_sed_escape "${SMTP_PASSWORD}")|g" \
+  -e "s|\${SMTP_FROM}|$(_sed_escape "${SMTP_FROM}")|g" \
+  -e "s|\${ALERTS_TO_EMAIL}|$(_sed_escape "${ALERTS_TO_EMAIL}")|g" \
+  -e "s|\${ALERTS_SMS_WEBHOOK_URL}|$(_sed_escape "${ALERTS_SMS_WEBHOOK_URL}")|g" \
+  "${TMPL}" > "${OUT}"
+
+# Strip the SMS webhook block when ALERTS_SMS_WEBHOOK_URL is empty —
+# alertmanager rejects "url: ''" with an unparseable-scheme error otherwise.
+if [ -z "${ALERTS_SMS_WEBHOOK_URL}" ]; then
+  sed -i '/# SMS_BLOCK_START/,/# SMS_BLOCK_END/d' "${OUT}"
+fi
+
 chmod 0640 "${OUT}"
 
 exec /bin/alertmanager "$@"

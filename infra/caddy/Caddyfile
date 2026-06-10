@@ -8,8 +8,29 @@
 # Generate hash: docker run --rm caddy:2-alpine caddy hash-password --plaintext 'pw'
 # =============================================================================
 
+# Security headers applied to every site via `import security_headers`.
+# HSTS only takes effect over HTTPS (Caddy auto-TLS).
+(security_headers) {
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        X-Frame-Options "DENY"
+        -Server
+    }
+}
+
+# Body-size ceiling at the edge. App-level limits (image upload, etc.) are
+# stricter; this just bounds resource use before the body reaches the upstream.
+(body_limit) {
+    request_body {
+        max_size 15MB
+    }
+}
+
 # Observability — shared across all projects
 grafana.{$DOMAIN} {
+    import security_headers
     basic_auth {
         {$CADDY_OBS_USER} {$CADDY_OBS_PASSWORD_HASH}
     }
@@ -17,6 +38,7 @@ grafana.{$DOMAIN} {
 }
 
 jaeger.{$DOMAIN} {
+    import security_headers
     basic_auth {
         {$CADDY_OBS_USER} {$CADDY_OBS_PASSWORD_HASH}
     }
@@ -24,6 +46,7 @@ jaeger.{$DOMAIN} {
 }
 
 auth.{$DOMAIN} {
+    import security_headers
     reverse_proxy platform-keycloak:8080
 }
 
