@@ -11,12 +11,26 @@
 # See SECRETS_RUNBOOK.md for key custody and rotation procedure.
 
 creation_rules:
-  # Production dotenv — committed encrypted as .env.production.enc
-  - path_regex: \.env\.production\.enc$
-    age: REPLACE_WITH_PROD_AGE_PUBLIC_KEY
+  # NB: SOPS matches path_regex against the INPUT file at encryption time, not
+  # the .enc output. So the regex matches the cleartext source name (.env,
+  # .env.production), and the convention is to redirect the encrypted output
+  # to <name>.enc — see scripts/setup-sops.sh.
+
+  # Production dotenv. On the prod server: `sops --encrypt .env.production`
+  # produces .env.production.enc, which is what gets committed.
+  - path_regex: \.env\.production$
+    age: age10y5n2eleht3g5ccjwwfyh3d7h3rp8rpwxvvdxtqjnlq7uj5sqfhqvysvsl
     input_type: dotenv
 
-  # Optional dev variant for the same pattern
-  - path_regex: \.env\.dev\.enc$
-    age: REPLACE_WITH_PROD_AGE_PUBLIC_KEY
+  # Dev dotenv (and per-service .env files under services/**/.env if ever
+  # encrypted). On a dev box: `sops --encrypt .env` produces .env.enc.
+  - path_regex: (^|/)\.env$
+    age: age10y5n2eleht3g5ccjwwfyh3d7h3rp8rpwxvvdxtqjnlq7uj5sqfhqvysvsl
+    input_type: dotenv
+
+  # Back-compat: alternate dev naming scheme (cleartext .env.dev → .env.dev.enc).
+  # Not used by the current workflow; kept so the rule still matches if you
+  # ever encrypt under that name.
+  - path_regex: \.env\.dev$
+    age: age10y5n2eleht3g5ccjwwfyh3d7h3rp8rpwxvvdxtqjnlq7uj5sqfhqvysvsl
     input_type: dotenv
