@@ -381,6 +381,24 @@ case "$TARGET" in
     make tf-bootstrap
     log_section "Initialising Terraform against the fresh MinIO backend"
     make tf-init-remote
+
+    # platform-litellm has no healthcheck (compose uses condition: service_started
+    # which only means "container created"). Terraform's local-exec provisioners
+    # for `null_resource.litellm_key_*` will fail if LiteLLM is still booting —
+    # poll until /health/readiness responds or timeout at 90s.
+    log_section "Waiting for platform-litellm to be ready (max 90s)"
+    set -a; . ./.env; set +a
+    litellm_port="${PLATFORM_LITELLM_PORT:-4001}"
+    for i in $(seq 1 45); do
+      if curl -sf -m 2 "http://127.0.0.1:${litellm_port}/health/readiness" >/dev/null 2>&1 \
+         || curl -sf -m 2 "http://127.0.0.1:${litellm_port}/health" >/dev/null 2>&1; then
+        echo " ✓ platform-litellm ready after $((i * 2))s"
+        break
+      fi
+      [[ $i -eq 45 ]] && { echo " ✗ platform-litellm not ready after 90s — aborting"; exit 1; }
+      sleep 2
+    done
+
     log_section "Applying Terraform (provisions every project module)"
     make tf-apply-all
     ;;
