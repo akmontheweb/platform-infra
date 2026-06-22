@@ -143,6 +143,9 @@ tf-apply-all: ## Apply ALL Terraform modules (used by CompleteRefresh)
 	export TF_VAR_minio_server=127.0.0.1:$${PLATFORM_MINIO_PORT:-9002} && \
 	export TF_VAR_redis_port=$${PLATFORM_REDIS_PORT:-6380} && \
 	export TF_VAR_litellm_url=http://127.0.0.1:$${PLATFORM_LITELLM_PORT:-4001} && \
+	export TF_VAR_pg_superuser=$$PLATFORM_PG_SUPERUSER && \
+	export TF_VAR_kc_admin_user=$$PLATFORM_KC_ADMIN_USER && \
+	export TF_VAR_minio_root_user=$$PLATFORM_MINIO_ROOT_USER && \
 	cd terraform && terraform apply -auto-approve
 	@echo ""
 	@echo "✓ All Terraform modules applied"
