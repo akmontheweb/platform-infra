@@ -6,8 +6,12 @@
 #   install   — verify (or download) sops + age binaries to ~/.local/bin
 #   keygen    — generate the production age keypair under keys/prod-age.txt
 #                 and wire its public key into .sops.yaml
-#   encrypt   — sops-encrypt .env.production       → .env.production.enc
-#   decrypt   — sops-decrypt .env.production.enc   → .env.production
+#   encrypt   — sops-encrypt <file> → <file>.enc
+#                 Defaults to .env.production. For dev:
+#                   bash setup-sops.sh encrypt .env.development
+#   decrypt   — sops-decrypt <file>.enc → <file>
+#                 Defaults to .env.production.enc. For dev:
+#                   bash setup-sops.sh decrypt .env.development.enc
 #   verify    — fail if any tracked .env* is unencrypted (CI gate)
 #
 # See SECRETS_RUNBOOK.md for the full procedure.

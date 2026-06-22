@@ -14,12 +14,17 @@ per the locked decision in `cue/PRODUCTION_LAUNCH_PLAN.md` §7.
 ```
 platform-infra/
 ├── .sops.yaml                  ← committed. Maps file paths to age recipients.
-├── .env.production             ← gitignored. Decrypted at deploy time.
-├── .env.production.enc         ← committed. SOPS-encrypted source of truth.
-├── .env                        ← gitignored. Local dev cleartext.
+├── .env.development            ← gitignored. Dev cleartext (decrypted at deploy time).
+├── .env.development.enc        ← committed. SOPS-encrypted dev source of truth.
+├── .env.production             ← gitignored. Prod cleartext (decrypted at deploy time).
+├── .env.production.enc         ← committed. SOPS-encrypted prod source of truth.
+├── .env                        ← gitignored. Symlink to .env.development OR
+│                                  .env.production, managed by scripts/deploy.sh
+│                                  based on DEPLOY_ENV.
 ├── .env.example                ← committed. Template only — no real secrets.
 ├── keys/
-│   └── prod-age.txt            ← gitignored. Production age private key.
+│   └── prod-age.txt            ← gitignored. Age private key (used for both
+│                                  dev and prod — single shared recipient).
 └── scripts/
     └── setup-sops.sh           ← install / keygen / encrypt / decrypt / verify
 ```
@@ -31,17 +36,18 @@ in diffs); only **values** are encrypted. SOPS supports `dotenv` natively.
 
 ## 2. First-time setup
 
-On a workstation that will hold the production age key:
+On a workstation that will hold the age key:
 
 ```bash
 cd platform-infra
-bash scripts/setup-sops.sh install    # → ~/.local/bin/{sops,age,age-keygen}
-bash scripts/setup-sops.sh keygen     # writes keys/prod-age.txt + updates .sops.yaml
-bash scripts/setup-sops.sh encrypt    # .env.production → .env.production.enc
+bash scripts/setup-sops.sh install                       # → ~/.local/bin/{sops,age,age-keygen}
+bash scripts/setup-sops.sh keygen                        # writes keys/prod-age.txt + updates .sops.yaml
+bash scripts/setup-sops.sh encrypt .env.development      # → .env.development.enc
+bash scripts/setup-sops.sh encrypt .env.production       # → .env.production.enc
 
-# Commit the encrypted file and the public-key edit, then back up the private key.
-git add .sops.yaml .env.production.enc
-git commit -m "chore(secrets): encrypt .env.production with SOPS+age"
+# Commit the encrypted files and the public-key edit, then back up the private key.
+git add .sops.yaml .env.development.enc .env.production.enc
+git commit -m "chore(secrets): encrypt env files with SOPS+age"
 ```
 
 **Back up `keys/prod-age.txt` IMMEDIATELY to at least two locations:**
@@ -73,9 +79,9 @@ new values into `.env.production` (after `decrypt`) and re-encrypt.
 After rotating each:
 
 ```bash
-bash scripts/setup-sops.sh decrypt
+bash scripts/setup-sops.sh decrypt .env.production.enc        # → .env.production
 # Edit .env.production with the new value(s)
-bash scripts/setup-sops.sh encrypt
+bash scripts/setup-sops.sh encrypt .env.production            # → .env.production.enc
 shred -u .env.production         # or: rm and clear shell history
 git add .env.production.enc && git commit -m "chore(secrets): rotate <provider> key"
 ```
@@ -163,9 +169,10 @@ and `.example` variants are allowed). This prevents the "oops I committed
 ## 7. Restore — lost cleartext, encrypted file intact
 
 ```bash
-# Get the prod private key back from 1Password into keys/prod-age.txt
+# Get the age private key back from 1Password into keys/prod-age.txt
 chmod 0600 keys/prod-age.txt
-bash scripts/setup-sops.sh decrypt
+bash scripts/setup-sops.sh decrypt .env.production.enc      # → .env.production
+bash scripts/setup-sops.sh decrypt .env.development.enc     # → .env.development
 ```
 
 ## 8. Restore — lost age private key

@@ -24,9 +24,12 @@ set -euo pipefail
 #   PROJECT_NAME          — required by ProvisionProject (e.g. "cue")
 #   WAIT_FOR_HEALTHY      — "true" to block until key services are healthy
 #                           (default: true)
-#   DEPLOY_ENV            — "production" → auto-decrypt .env.production.enc and
-#                                          symlink .env → .env.production
-#                           "development" → auto-decrypt .env.enc → .env
+#   DEPLOY_ENV            — "production" → auto-decrypt .env.production.enc →
+#                                          .env.production, symlink .env →
+#                                          .env.production
+#                           "development" → auto-decrypt .env.development.enc →
+#                                          .env.development, symlink .env →
+#                                          .env.development
 #                           unset (default) → backward-compat: require an
 #                                          operator-placed cleartext .env
 #
@@ -79,8 +82,8 @@ ensure_env_file() {
   cd "$APP_DIR"
   local enc plain
   case "$DEPLOY_ENV" in
-    production)  enc=".env.production.enc"; plain=".env.production" ;;
-    development) enc=".env.enc";             plain=".env" ;;
+    production)  enc=".env.production.enc";  plain=".env.production"  ;;
+    development) enc=".env.development.enc"; plain=".env.development" ;;
     *)
       echo "ERROR: DEPLOY_ENV must be 'production' or 'development' (got: '$DEPLOY_ENV')"
       exit 1
@@ -105,13 +108,11 @@ ensure_env_file() {
   log_section "Auto-decrypting $enc (DEPLOY_ENV=$DEPLOY_ENV)"
   bash scripts/setup-sops.sh decrypt "$enc"
 
-  # Compose and the Makefile TF targets all read .env. On production we point
-  # .env at the decrypted .env.production so nothing downstream needs to know
-  # which environment it is.
-  if [[ "$DEPLOY_ENV" == "production" ]]; then
-    ln -sfn "$plain" .env
-    echo "Linked .env → $plain"
-  fi
+  # Compose and the Makefile TF targets all read .env. Symlink it at the
+  # decrypted source-of-truth so nothing downstream needs to know which
+  # environment it is. Same shape for both dev and prod.
+  ln -sfn "$plain" .env
+  echo "Linked .env → $plain"
 }
 
 pull_code() {

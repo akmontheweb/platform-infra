@@ -1,14 +1,14 @@
 # Secrets — never commit cleartext dotenv files
 .env
 .env.local
+.env.development
 .env.production
-.env.dev
 *.env.local
 services/**/.env
 backups/
 
 # Encrypted dotenv files (committed by design) live alongside as
-# `.env.production.enc` and `.env.dev.enc` — those ARE tracked.
+# `.env.development.enc` and `.env.production.enc` — those ARE tracked.
 
 # age private keys — never commit
 keys/
