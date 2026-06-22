@@ -138,6 +138,11 @@ tf-apply-all: ## Apply ALL Terraform modules (used by CompleteRefresh)
 	export TF_VAR_mcp_twilio_auth_token=$$TWILIO_AUTH_TOKEN && \
 	export TF_VAR_mcp_twilio_phone_number=$$TWILIO_PHONE_NUMBER && \
 	export TF_VAR_mcp_tavily_api_key=$$TAVILY_API_KEY && \
+	export TF_VAR_pg_port=$${PLATFORM_PG_PORT:-5433} && \
+	export TF_VAR_kc_url=http://127.0.0.1:$${PLATFORM_KC_PORT:-8081} && \
+	export TF_VAR_minio_server=127.0.0.1:$${PLATFORM_MINIO_PORT:-9002} && \
+	export TF_VAR_redis_port=$${PLATFORM_REDIS_PORT:-6380} && \
+	export TF_VAR_litellm_url=http://127.0.0.1:$${PLATFORM_LITELLM_PORT:-4001} && \
 	cd terraform && terraform apply -auto-approve
 	@echo ""
 	@echo "✓ All Terraform modules applied"
