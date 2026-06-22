@@ -80,7 +80,7 @@ jobs:
   deploy:
     name: 'Deploy → platform-infra Production'
     runs-on: ubuntu-latest
-    environment: PLATFORM_INFRA_PRODUCTION
+    environment: PLATFORM_INFRA_PROD
     timeout-minutes: 45
 
     steps:
