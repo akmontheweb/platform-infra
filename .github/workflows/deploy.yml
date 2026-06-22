@@ -17,10 +17,10 @@ name: Deploy platform-infra (Production)
 #   HETZNER_SSH_HOST_KEY        — server's public host key (ssh-keyscan -H <host>)
 #   HETZNER_SSH_PORT            — (optional) SSH port, defaults to 22
 #   PLATFORM_INFRA_DEPLOY_PATH  — (optional) repo root on server,
-#                                 defaults to /home/deploy/platform_infra
+#                                 defaults to /home/deploy/platform-infra
 #
 # First-time server setup:
-#   git clone https://github.com/<org>/platform-infra.git /home/deploy/platform_infra
+#   git clone https://github.com/<org>/platform-infra.git /home/deploy/platform-infra
 #   # Populate .env (or decrypt .env.production.enc with the age key) before
 #   # the first deploy.
 # ─────────────────────────────────────────────────────────────────────────────
@@ -34,12 +34,12 @@ on:
         type: choice
         default: 'DeployPlatformInfra'
         options:
-          - FirstTimeSetup
           - DeployPlatformInfra
           - ForceRecreateAll
           - RestartService
           - ProvisionProject
           - BackupNow
+          - CompleteRefresh
       git_ref:
         description: 'Branch or tag to deploy (e.g. main, v1.2.0)'
         required: true
@@ -63,7 +63,7 @@ on:
         required: false
         default: ''
       confirm_destructive_action:
-        description: 'Required for FirstTimeSetup'
+        description: 'Required for CompleteRefresh (WIPES ALL DATA — every volume removed)'
         required: false
         type: boolean
         default: false
@@ -95,7 +95,7 @@ jobs:
           script: |
             set -euo pipefail
 
-            APP_DIR="${{ secrets.PLATFORM_INFRA_DEPLOY_PATH || '/home/deploy/platform_infra' }}"
+            APP_DIR="${{ secrets.PLATFORM_INFRA_DEPLOY_PATH || '/home/deploy/platform-infra' }}"
             GIT_REF="${{ inputs.git_ref }}"
             if [[ ! -d "$APP_DIR/.git" ]]; then
               echo "First-time setup: cloning repository into $APP_DIR"
@@ -110,4 +110,5 @@ jobs:
             WAIT_FOR_HEALTHY="${{ inputs.wait_for_healthy }}" \
             SERVICE_NAME="${{ inputs.service_name }}" \
             PROJECT_NAME="${{ inputs.project_name }}" \
+            DEPLOY_ENV=production \
             bash "$APP_DIR/scripts/deploy.sh"

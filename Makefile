@@ -1,6 +1,6 @@
 .PHONY: up down logs build ps shell-postgres shell-redis provision rollback help \
         secrets-install secrets-keygen secrets-encrypt secrets-decrypt secrets-verify \
-        tf-bootstrap tf-init-remote
+        tf-bootstrap tf-init-remote tf-apply-all
 
 COMPOSE = docker compose
 TF = cd terraform && terraform
@@ -63,7 +63,7 @@ secrets-verify: ## CI gate: fail if any tracked .env* is cleartext
 # ─── Terraform ───────────────────────────────────────────────────────────────
 
 tf-bootstrap: ## One-time: create MinIO bucket + service account for TF state
-	@set -a && . ./.env.production && set +a && \
+	@set -a && . ./.env && set +a && \
 	docker exec -i platform-minio mc alias set local http://localhost:9000 \
 	    "$$PLATFORM_MINIO_ROOT_USER" "$$PLATFORM_MINIO_ROOT_PASSWORD" && \
 	docker exec -i platform-minio mc mb -p local/platform-tfstate && \
@@ -78,7 +78,7 @@ tf-init: ## Initialize Terraform providers (local backend — legacy)
 	$(TF) init
 
 tf-init-remote: ## Initialize Terraform with the MinIO S3 backend
-	@set -a && . ./.env.production && set +a && \
+	@set -a && . ./.env && set +a && \
 	$(TF) init \
 	    -backend-config="access_key=$$TF_BACKEND_ACCESS_KEY" \
 	    -backend-config="secret_key=$$TF_BACKEND_SECRET_KEY"
@@ -113,6 +113,26 @@ deploy-mcp: ## Build, provision LiteLLM key, and deploy platform-mcp via Terrafo
 provision-plan: ## Dry-run for provisioning: make provision-plan PROJECT=cue
 	$(TF) init
 	$(TF) plan -target=module.$(PROJECT)
+
+tf-apply-all: ## Apply ALL Terraform modules (used by CompleteRefresh)
+	@set -a && . ./.env && set +a && \
+	export TF_VAR_pg_superpassword=$$PLATFORM_PG_SUPERPASSWORD && \
+	export TF_VAR_kc_admin_password=$$PLATFORM_KC_ADMIN_PASSWORD && \
+	export TF_VAR_minio_root_password=$$PLATFORM_MINIO_ROOT_PASSWORD && \
+	export TF_VAR_litellm_master_key=$$LITELLM_MASTER_KEY && \
+	export TF_VAR_mcp_api_key=$$MCP_API_KEY && \
+	export TF_VAR_mcp_smtp_host=$$SMTP_HOST && \
+	export TF_VAR_mcp_smtp_port=$$SMTP_PORT && \
+	export TF_VAR_mcp_smtp_user=$$SMTP_USER && \
+	export TF_VAR_mcp_smtp_password=$$SMTP_PASSWORD && \
+	export TF_VAR_mcp_smtp_from=$$SMTP_FROM && \
+	export TF_VAR_mcp_twilio_account_sid=$$TWILIO_ACCOUNT_SID && \
+	export TF_VAR_mcp_twilio_auth_token=$$TWILIO_AUTH_TOKEN && \
+	export TF_VAR_mcp_twilio_phone_number=$$TWILIO_PHONE_NUMBER && \
+	export TF_VAR_mcp_tavily_api_key=$$TAVILY_API_KEY && \
+	cd terraform && terraform apply -auto-approve
+	@echo ""
+	@echo "✓ All Terraform modules applied"
 
 tf-output: ## Show Terraform outputs: make tf-output PROJECT=cue
 	$(TF) output -json | python3 -c "import json,sys; [print(f'{k}: {v[\"value\"]}') for k,v in json.load(sys.stdin).items() if not v.get('sensitive')]"

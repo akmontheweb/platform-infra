@@ -9,13 +9,13 @@ set -euo pipefail
 #
 # Required env vars:
 #   APP_DIR     — absolute path to the platform-infra repo on the server
-#   TARGET      — one of: FirstTimeSetup | DeployPlatformInfra |
-#                 ForceRecreateAll | RestartService | ProvisionProject |
-#                 BackupNow
+#   TARGET      — one of: DeployPlatformInfra | ForceRecreateAll |
+#                 RestartService | ProvisionProject | BackupNow |
+#                 CompleteRefresh
 #   GIT_REF     — git branch / tag / SHA to deploy
 #
 # Optional env vars:
-#   CONFIRM_DESTRUCTIVE   — "true" to allow FirstTimeSetup (default: false)
+#   CONFIRM_DESTRUCTIVE   — "true" to allow CompleteRefresh (default: false)
 #   FORCE_CLEAN_BUILD     — "true" to pass --no-cache to docker compose build
 #                           (default: false on DeployPlatformInfra,
 #                            implicitly true on ForceRecreateAll)
@@ -24,6 +24,11 @@ set -euo pipefail
 #   PROJECT_NAME          — required by ProvisionProject (e.g. "cue")
 #   WAIT_FOR_HEALTHY      — "true" to block until key services are healthy
 #                           (default: true)
+#   DEPLOY_ENV            — "production" → auto-decrypt .env.production.enc and
+#                                          symlink .env → .env.production
+#                           "development" → auto-decrypt .env.enc → .env
+#                           unset (default) → backward-compat: require an
+#                                          operator-placed cleartext .env
 #
 # Prerequisites on the server (already true on this prod box):
 #   1. Repo cloned at APP_DIR with a populated .env at APP_DIR/.env
@@ -41,6 +46,7 @@ FORCE_CLEAN_BUILD="${FORCE_CLEAN_BUILD:-false}"
 SERVICE_NAME="${SERVICE_NAME:-}"
 PROJECT_NAME="${PROJECT_NAME:-}"
 WAIT_FOR_HEALTHY="${WAIT_FOR_HEALTHY:-true}"
+DEPLOY_ENV="${DEPLOY_ENV:-}"
 
 log_section() {
   echo "══════════════════════════════════════════════"
@@ -56,13 +62,56 @@ require_destructive_confirmation() {
 }
 
 ensure_env_file() {
-  [[ -f "$APP_DIR/.env" ]] || {
-    echo "ERROR: $APP_DIR/.env is missing."
-    echo "       On a fresh server, decrypt secrets with:"
-    echo "         cd $APP_DIR && make secrets-decrypt && cp .env.production .env"
-    echo "       (The age private key must already be in keys/prod-age.txt.)"
+  # When DEPLOY_ENV is unset, keep backward-compat behaviour: just require
+  # that an operator-placed cleartext .env already exists.
+  if [[ -z "$DEPLOY_ENV" ]]; then
+    [[ -f "$APP_DIR/.env" ]] || {
+      echo "ERROR: $APP_DIR/.env is missing and DEPLOY_ENV is unset."
+      echo "       Either set DEPLOY_ENV=production|development to auto-decrypt,"
+      echo "       or place a cleartext .env at $APP_DIR/.env."
+      exit 1
+    }
+    return 0
+  fi
+
+  # DEPLOY_ENV is set → committed .enc is the source of truth, decrypt every
+  # run so the box matches what's in git.
+  cd "$APP_DIR"
+  local enc plain
+  case "$DEPLOY_ENV" in
+    production)  enc=".env.production.enc"; plain=".env.production" ;;
+    development) enc=".env.enc";             plain=".env" ;;
+    *)
+      echo "ERROR: DEPLOY_ENV must be 'production' or 'development' (got: '$DEPLOY_ENV')"
+      exit 1
+      ;;
+  esac
+
+  [[ -f "$enc" ]] || {
+    echo "ERROR: $enc is missing — cannot auto-decrypt with DEPLOY_ENV=$DEPLOY_ENV"
     exit 1
   }
+  [[ -f "keys/prod-age.txt" ]] || {
+    echo "ERROR: keys/prod-age.txt is missing — needed to decrypt $enc"
+    echo "       Restore from your password manager (SECRETS_RUNBOOK.md §7)."
+    exit 1
+  }
+  export PATH="$HOME/.local/bin:$PATH"
+  command -v sops >/dev/null || {
+    echo "ERROR: sops not found on PATH. Run: make secrets-install"
+    exit 1
+  }
+
+  log_section "Auto-decrypting $enc (DEPLOY_ENV=$DEPLOY_ENV)"
+  bash scripts/setup-sops.sh decrypt "$enc"
+
+  # Compose and the Makefile TF targets all read .env. On production we point
+  # .env at the decrypted .env.production so nothing downstream needs to know
+  # which environment it is.
+  if [[ "$DEPLOY_ENV" == "production" ]]; then
+    ln -sfn "$plain" .env
+    echo "Linked .env → $plain"
+  fi
 }
 
 pull_code() {
@@ -93,7 +142,7 @@ require_data_volumes_present() {
   if [[ ${#missing[@]} -gt 0 ]]; then
     echo "ERROR: expected data volumes are missing: ${missing[*]}"
     echo "       This server looks empty. Refusing to deploy."
-    echo "       If this is genuinely a fresh server, run FirstTimeSetup with"
+    echo "       If this is genuinely a fresh server, run CompleteRefresh with"
     echo "       confirm_destructive_action=true instead."
     exit 1
   fi
@@ -235,17 +284,6 @@ pull_code
 
 case "$TARGET" in
 
-  # ── First-time bring-up on an empty server ──────────────────────────────────
-  # Use only when data volumes do NOT exist yet. Builds all locally-built images
-  # and starts the stack. Does NOT wipe volumes (compose `up -d` is no-op if
-  # volumes already exist — but you should run DeployPlatformInfra in that case).
-  FirstTimeSetup)
-    require_destructive_confirmation "FirstTimeSetup"
-    build_images
-    start_services_force
-    wait_for_health
-    ;;
-
   # ── Default safe deploy ─────────────────────────────────────────────────────
   # Builds locally-built images (cache-respecting) and runs `up -d` without
   # --force-recreate. Containers whose image or config changed are recreated;
@@ -293,11 +331,39 @@ case "$TARGET" in
     backup_now
     ;;
 
+  # ── Wipe and rebuild from scratch (most destructive) ────────────────────────
+  # Treats the server as fresh. NUKES every named volume — postgres, keycloak,
+  # redis, minio (incl. terraform state bucket and platform-backups bucket).
+  # Then rebuilds images, brings up a clean stack, re-bootstraps the MinIO TF
+  # state bucket, and runs `terraform apply` against ALL project modules.
+  #
+  # Use only on a new app with no data worth keeping, or as an explicit reset.
+  # Downstream apps (e.g. Cue) WILL break — their DB roles, Keycloak realms,
+  # MinIO buckets, and LiteLLM keys are recreated, so they must be restarted
+  # and re-run their own schema migrations.
+  CompleteRefresh)
+    require_destructive_confirmation "CompleteRefresh"
+    log_section "WIPING all platform-infra volumes (containers + data)"
+    cd "$APP_DIR"
+    docker compose down -v --remove-orphans
+    FORCE_CLEAN_BUILD=true
+    build_images
+    start_services_force
+    wait_for_health
+    log_section "Re-bootstrapping Terraform state bucket in MinIO"
+    cd "$APP_DIR"
+    make tf-bootstrap
+    log_section "Initialising Terraform against the fresh MinIO backend"
+    make tf-init-remote
+    log_section "Applying Terraform (provisions every project module)"
+    make tf-apply-all
+    ;;
+
   *)
     echo "ERROR: Unknown deployment target '$TARGET'"
-    echo "       Valid targets: FirstTimeSetup | DeployPlatformInfra |"
-    echo "                      ForceRecreateAll | RestartService |"
-    echo "                      ProvisionProject | BackupNow"
+    echo "       Valid targets: DeployPlatformInfra | ForceRecreateAll |"
+    echo "                      RestartService | ProvisionProject |"
+    echo "                      BackupNow | CompleteRefresh"
     exit 1
     ;;
 esac
