@@ -15,7 +15,9 @@ resource "null_resource" "litellm_key_mcp" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      response=$(curl -sf -X POST "${var.litellm_url}/key/generate" \
+      http_code=$(curl -s -o /tmp/litellm_resp_platform-mcp.json \
+        -w "%%{http_code}" \
+        -X POST "${var.litellm_url}/key/generate" \
         -H "Authorization: Bearer ${var.litellm_master_key}" \
         -H "Content-Type: application/json" \
         -d '{
@@ -23,10 +25,11 @@ resource "null_resource" "litellm_key_mcp" {
           "models": ["fast-model","balanced-model","vision-model","embedding","transcription-model"],
           "metadata": {"service": "platform-mcp"}
         }')
-      if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'key' in d" 2>/dev/null; then
-        echo "$response" > /tmp/litellm_key_platform-mcp.json
+      response=$(cat /tmp/litellm_resp_platform-mcp.json 2>/dev/null)
+      if [ "$http_code" = "200" ] && echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'key' in d" 2>/dev/null; then
+        mv /tmp/litellm_resp_platform-mcp.json /tmp/litellm_key_platform-mcp.json
       else
-        echo "ERROR: LiteLLM key generation failed: $response" >&2
+        echo "ERROR: LiteLLM key generation failed. HTTP $http_code. Body: $response" >&2
         exit 1
       fi
     EOT

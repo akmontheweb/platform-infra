@@ -175,7 +175,9 @@ resource "null_resource" "litellm_key" {
 
   provisioner "local-exec" {
     command = <<-EOT
-      response=$(curl -sf -X POST "${var.litellm_url}/key/generate" \
+      http_code=$(curl -s -o /tmp/litellm_resp_${var.project_name}.json \
+        -w "%%{http_code}" \
+        -X POST "${var.litellm_url}/key/generate" \
         -H "Authorization: Bearer ${var.litellm_master_key}" \
         -H "Content-Type: application/json" \
         -d '{
@@ -185,10 +187,11 @@ resource "null_resource" "litellm_key" {
           "models": ["fast-model","balanced-model","vision-model","embedding","transcription-model"],
           "metadata": {"project": "${var.project_name}"}
         }')
-      if echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'key' in d" 2>/dev/null; then
-        echo "$response" > /tmp/litellm_key_${var.project_name}.json
+      response=$(cat /tmp/litellm_resp_${var.project_name}.json 2>/dev/null)
+      if [ "$http_code" = "200" ] && echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); assert 'key' in d" 2>/dev/null; then
+        mv /tmp/litellm_resp_${var.project_name}.json /tmp/litellm_key_${var.project_name}.json
       else
-        echo "ERROR: LiteLLM key generation failed: $response" >&2
+        echo "ERROR: LiteLLM key generation failed. HTTP $http_code. Body: $response" >&2
         exit 1
       fi
     EOT
