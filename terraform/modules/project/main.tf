@@ -242,6 +242,7 @@ resource "local_file" "project_env" {
     minio_access_key = minio_iam_service_account.project.access_key
     minio_secret_key = minio_iam_service_account.project.secret_key
     redis_db         = var.redis_db
+    redis_password   = var.redis_password
     litellm_key      = local.litellm_key
   })
 

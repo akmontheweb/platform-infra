@@ -7,7 +7,7 @@ DATABASE_URL=postgresql+asyncpg://${project_name}:${pg_password}@${pg_host}:${pg
 BROADCASTER_URL=postgresql://${project_name}:${pg_password}@${pg_host}:${pg_port}/${project_name}
 
 # ── Redis ───────────────────────────────────────────────────────
-REDIS_URL=redis://platform-redis:6379/${redis_db}
+REDIS_URL=redis://:${redis_password}@platform-redis:6379/${redis_db}
 
 # ── Keycloak ────────────────────────────────────────────────────
 KEYCLOAK_URL=http://platform-keycloak:8080

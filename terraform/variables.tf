@@ -87,6 +87,12 @@ variable "redis_port" {
   default     = 6380
 }
 
+variable "redis_password" {
+  description = "platform-redis password — embedded into per-project .env.platform REDIS_URL so consumers can authenticate"
+  type        = string
+  sensitive   = true
+}
+
 # ---------------------------------------------------------------------------
 # Platform MCP variables — secrets / config for the shared MCP tool server
 # ---------------------------------------------------------------------------

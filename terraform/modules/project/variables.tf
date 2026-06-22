@@ -29,6 +29,12 @@ variable "redis_db" {
   }
 }
 
+variable "redis_password" {
+  description = "platform-redis password (matches PLATFORM_REDIS_PASSWORD on the platform-infra .env). Embedded into the generated .env.platform's REDIS_URL so consumers can authenticate."
+  type        = string
+  sensitive   = true
+}
+
 variable "litellm_budget_tokens" {
   description = "Monthly LLM token budget for this project (integer token count)"
   type        = number

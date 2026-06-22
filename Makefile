@@ -104,6 +104,7 @@ deploy-mcp: ## Build, provision LiteLLM key, and deploy platform-mcp via Terrafo
 	export TF_VAR_kc_admin_password=$$PLATFORM_KC_ADMIN_PASSWORD && \
 	export TF_VAR_minio_root_password=$$PLATFORM_MINIO_ROOT_PASSWORD && \
 	export TF_VAR_litellm_master_key=$$LITELLM_MASTER_KEY && \
+	export TF_VAR_redis_password=$$PLATFORM_REDIS_PASSWORD && \
 	export TF_VAR_mcp_api_key=$$MCP_API_KEY && \
 	export TF_VAR_mcp_smtp_host=$$SMTP_HOST && \
 	export TF_VAR_mcp_smtp_port=$$SMTP_PORT && \
@@ -128,6 +129,7 @@ tf-apply-all: ## Apply ALL Terraform modules (used by CompleteRefresh)
 	export TF_VAR_kc_admin_password=$$PLATFORM_KC_ADMIN_PASSWORD && \
 	export TF_VAR_minio_root_password=$$PLATFORM_MINIO_ROOT_PASSWORD && \
 	export TF_VAR_litellm_master_key=$$LITELLM_MASTER_KEY && \
+	export TF_VAR_redis_password=$$PLATFORM_REDIS_PASSWORD && \
 	export TF_VAR_mcp_api_key=$$MCP_API_KEY && \
 	export TF_VAR_mcp_smtp_host=$$SMTP_HOST && \
 	export TF_VAR_mcp_smtp_port=$$SMTP_PORT && \

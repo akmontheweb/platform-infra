@@ -11,6 +11,7 @@ module "cue" {
   domain                = var.domain
   app_base_url          = "https://cue.${var.domain}"
   redis_db              = 2
+  redis_password        = var.redis_password
   litellm_budget_tokens = 5000000
   litellm_url           = var.litellm_url
   litellm_master_key    = var.litellm_master_key
