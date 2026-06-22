@@ -14,8 +14,10 @@ name: Deploy platform-infra (Production)
 #   HETZNER_SSH_HOST            — server IP or hostname
 #   HETZNER_SSH_USER            — SSH login user (e.g. deploy)
 #   HETZNER_SSH_PRIVATE_KEY     — PEM-encoded private key
-#   HETZNER_SSH_HOST_KEY        — server's public host key (ssh-keyscan -H <host>)
 #   HETZNER_SSH_PORT            — (optional) SSH port, defaults to 22
+#   (host-key pinning is currently unset — appleboy/ssh-action falls back to
+#    StrictHostKeyChecking=no. Tighten later by setting a SHA256 fingerprint
+#    via the `fingerprint:` input — NOT `host_key`, which is not a valid input.)
 #   PLATFORM_INFRA_DEPLOY_PATH  — (optional) repo root on server,
 #                                 defaults to /home/deploy/platform-infra
 #
@@ -88,7 +90,6 @@ jobs:
           host: ${{ secrets.HETZNER_SSH_HOST }}
           username: ${{ secrets.HETZNER_SSH_USER }}
           key: ${{ secrets.HETZNER_SSH_PRIVATE_KEY }}
-          host_key: ${{ secrets.HETZNER_SSH_HOST_KEY }}
           port: ${{ secrets.HETZNER_SSH_PORT || 22 }}
           command_timeout: 42m
           script_stop: true
