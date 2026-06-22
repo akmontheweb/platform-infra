@@ -354,8 +354,23 @@ case "$TARGET" in
     # to migrate it interactively into the new S3 backend (which would EOF in
     # a non-interactive deploy).
     log_section "Wiping local Terraform state (clean slate for the new backend)"
-    rm -rf terraform/.terraform terraform/.terraform.lock.hcl
-    rm -f terraform/terraform.tfstate terraform/terraform.tfstate.backup
+    echo ">>> Before wipe — terraform/ tree (state + backend files only):"
+    find terraform/ \( -name '.terraform' -o -name '.terraform.lock.hcl' \
+                       -o -name '*.tfstate' -o -name '*.tfstate.backup' \
+                       -o -name '.local-state-archive' \) -print 2>/dev/null \
+      | sed 's/^/    /' || echo "    (none)"
+    # Recursive wipe — covers root terraform/ + any submodule dirs
+    find terraform/ \( -name '.terraform' -o -name '.terraform.lock.hcl' \
+                       -o -name '*.tfstate' -o -name '*.tfstate.backup' \
+                       -o -name '.local-state-archive' \) \
+      -exec rm -rf {} + 2>/dev/null || true
+    echo ">>> After wipe:"
+    find terraform/ \( -name '.terraform' -o -name '.terraform.lock.hcl' \
+                       -o -name '*.tfstate' -o -name '*.tfstate.backup' \) \
+      -print 2>/dev/null | sed 's/^/    /' || echo "    (clean)"
+    [ -z "$(find terraform/ \( -name '.terraform' -o -name '.terraform.lock.hcl' \
+                              -o -name '*.tfstate' -o -name '*.tfstate.backup' \) \
+              -print 2>/dev/null)" ] && echo "    (clean)"
 
     FORCE_CLEAN_BUILD=true
     build_images
