@@ -78,10 +78,18 @@ tf-init: ## Initialize Terraform providers (local backend — legacy)
 	$(TF) init
 
 tf-init-remote: ## Initialize Terraform with the MinIO S3 backend
+	# Overrides on top of backend.tf:
+	#   endpoints.s3 → localhost:<host-port>  (terraform runs on the host,
+	#                  not in the docker network; same port on dev + prod)
+	#   encrypt      → false (MinIO doesn't have KMS / SSE-S3 configured;
+	#                  enable via `mc encrypt set sse-s3 …` and flip back on
+	#                  if/when at-rest encryption is required)
 	@set -a && . ./.env && set +a && \
-	$(TF) init \
+	$(TF) init -reconfigure \
 	    -backend-config="access_key=$$TF_BACKEND_ACCESS_KEY" \
-	    -backend-config="secret_key=$$TF_BACKEND_SECRET_KEY"
+	    -backend-config="secret_key=$$TF_BACKEND_SECRET_KEY" \
+	    -backend-config="endpoints={s3=\"http://localhost:$${PLATFORM_MINIO_PORT:-9002}\"}" \
+	    -backend-config="encrypt=false"
 
 provision: ## Provision a project namespace: make provision PROJECT=cue
 	@echo "Provisioning project: $(PROJECT)"
