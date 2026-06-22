@@ -395,9 +395,9 @@ services:
       - platform_alertmanager_data:/alertmanager
 
   # ── Postgres exporter (platform-postgres) ────────────────────────────────────
-  postgres-exporter-platform:
+  platform-postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0   # TODO(week-3): pin by digest
-    container_name: postgres-exporter-platform
+    container_name: platform-postgres-exporter
     <<: *restart
     networks: [platform]
     environment:
@@ -408,9 +408,9 @@ services:
         condition: service_healthy
 
   # ── Postgres exporter (platform-keycloak-postgres) ───────────────────────────
-  postgres-exporter-keycloak:
+  platform-keycloak-postgres-exporter:
     image: quay.io/prometheuscommunity/postgres-exporter:v0.15.0   # TODO(week-3): pin by digest
-    container_name: postgres-exporter-keycloak
+    container_name: platform-keycloak-postgres-exporter
     <<: *restart
     networks: [platform]
     environment:
@@ -421,9 +421,9 @@ services:
         condition: service_healthy
 
   # ── Redis exporter ───────────────────────────────────────────────────────────
-  redis-exporter:
+  platform-redis-exporter:
     image: oliver006/redis_exporter:v1.61.0   # TODO(week-3): pin by digest
-    container_name: redis-exporter
+    container_name: platform-redis-exporter
     <<: *restart
     networks: [platform]
     environment:
@@ -440,9 +440,9 @@ services:
   # ── cAdvisor — container metrics including OOM kills ────────────────────────
   # Needs docker socket + /sys + /var/lib/docker mounts; runs as root so it
   # can read cgroup stats for every container on the host.
-  cadvisor:
+  platform-cadvisor:
     image: gcr.io/cadvisor/cadvisor:v0.49.1   # TODO(week-3): pin by digest
-    container_name: cadvisor
+    container_name: platform-cadvisor
     <<: *restart
     networks: [platform]
     privileged: true

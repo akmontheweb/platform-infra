@@ -41,13 +41,13 @@ scrape_configs:
   # Two clusters → two exporters, each scoped to its server's auth creds.
   - job_name: postgres-platform
     static_configs:
-      - targets: ["postgres-exporter-platform:9187"]
+      - targets: ["platform-postgres-exporter:9187"]
         labels:
           cluster: platform-postgres
 
   - job_name: postgres-keycloak
     static_configs:
-      - targets: ["postgres-exporter-keycloak:9187"]
+      - targets: ["platform-keycloak-postgres-exporter:9187"]
         labels:
           cluster: platform-keycloak-postgres
 
@@ -56,12 +56,12 @@ scrape_configs:
   # length/lag (REDIS_EXPORTER_CHECK_STREAMS configured on the exporter).
   - job_name: redis
     static_configs:
-      - targets: ["redis-exporter:9121"]
+      - targets: ["platform-redis-exporter:9121"]
 
   # ── cAdvisor — per-container CPU/memory/OOM ──────────────────────────
   - job_name: cadvisor
     static_configs:
-      - targets: ["cadvisor:8080"]
+      - targets: ["platform-cadvisor:8080"]
     metric_relabel_configs:
       # Drop high-cardinality per-process metrics we won't dashboard or alert
       # on — keeps tsdb retention healthy on the single-host stack.

@@ -187,10 +187,8 @@ restart_one_service() {
     exit 1
   }
   # Accept either bare ("redis") or full ("platform-redis") names.
-  if [[ "$svc" != platform-* && "$svc" != postgres-exporter-* \
-        && "$svc" != "redis-exporter" && "$svc" != "cadvisor" ]]; then
-    svc="platform-$svc"
-  fi
+  # All services follow the platform-<name> convention.
+  [[ "$svc" == platform-* ]] || svc="platform-$svc"
   log_section "Restarting single service: $svc"
   # Quick sanity check that the service exists in compose.
   if ! compose config --services | grep -qx "$svc"; then
