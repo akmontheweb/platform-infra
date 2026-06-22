@@ -277,8 +277,11 @@ prune_old_images() {
 
 # ── Bootstrap ──────────────────────────────────────────────────────────────────
 
-ensure_env_file
+# Pull first so the latest .env.production.enc (and the script itself) is on
+# disk before we decrypt. Otherwise an updated .enc from this push would be
+# read on the NEXT deploy, not this one.
 pull_code
+ensure_env_file
 
 # ── Deployment targets ────────────────────────────────────────────────────────
 
