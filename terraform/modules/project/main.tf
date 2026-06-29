@@ -86,6 +86,33 @@ resource "keycloak_openid_client" "backend_service" {
   depends_on = [keycloak_realm.project]
 }
 
+# Grant the backend-service service account the realm-management roles it needs
+# to create/manage users via the Admin REST API. Without these, the API's
+# /auth/register call to POST /admin/realms/{realm}/users returns 403 and the
+# user-facing endpoint surfaces a 503.
+data "keycloak_openid_client" "realm_management" {
+  realm_id  = keycloak_realm.project.id
+  client_id = "realm-management"
+
+  depends_on = [keycloak_realm.project]
+}
+
+locals {
+  backend_service_realm_mgmt_roles = toset([
+    "manage-users",
+    "view-users",
+    "query-users",
+  ])
+}
+
+resource "keycloak_openid_client_service_account_role" "backend_service_realm_mgmt" {
+  for_each                = local.backend_service_realm_mgmt_roles
+  realm_id                = keycloak_realm.project.id
+  service_account_user_id = keycloak_openid_client.backend_service.service_account_user_id
+  client_id               = data.keycloak_openid_client.realm_management.id
+  role                    = each.key
+}
+
 # App client (public SPA — browser login, PKCE)
 resource "keycloak_openid_client" "app_client" {
   realm_id                     = keycloak_realm.project.id
