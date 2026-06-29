@@ -113,6 +113,17 @@ resource "keycloak_openid_client_service_account_role" "backend_service_realm_mg
   role                    = each.key
 }
 
+# Realm role asserted by the API's require_admin (checks realm_access.roles
+# for "admin"). Declared here so a clean rebuild has the role; scripts/
+# grant-admin.sh just assigns it to users.
+resource "keycloak_role" "admin" {
+  realm_id    = keycloak_realm.project.id
+  name        = "admin"
+  description = "Project administrator (checked by API require_admin)"
+
+  depends_on = [keycloak_realm.project]
+}
+
 # App client (public SPA — browser login, PKCE)
 resource "keycloak_openid_client" "app_client" {
   realm_id                     = keycloak_realm.project.id
