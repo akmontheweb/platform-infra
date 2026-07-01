@@ -124,6 +124,128 @@ resource "keycloak_role" "admin" {
   depends_on = [keycloak_realm.project]
 }
 
+# Realm User Profile schema. Keycloak 24+ ships Declarative User Profile
+# with unmanagedAttributePolicy=DISABLED — the Admin REST API silently
+# drops any user attribute that isn't declared here, so PUTs of role /
+# approved from scripts/grant-admin.sh never persisted and the admin SPA's
+# payload["role"] === "admin" check failed for every user. Every attribute
+# consumed by a user_attribute protocol mapper below must be declared
+# here; built-ins are re-declared to preserve default user-creation flows.
+resource "keycloak_realm_user_profile" "project" {
+  realm_id = keycloak_realm.project.id
+
+  attribute {
+    name         = "username"
+    display_name = "$${username}"
+
+    validator {
+      name = "length"
+      config = {
+        min = "3"
+        max = "255"
+      }
+    }
+    validator { name = "username-prohibited-characters" }
+    validator { name = "up-username-not-idn-homograph" }
+
+    permissions {
+      view = ["admin", "user"]
+      edit = ["admin", "user"]
+    }
+  }
+
+  attribute {
+    name         = "email"
+    display_name = "$${email}"
+
+    validator { name = "email" }
+    validator {
+      name   = "length"
+      config = { max = "255" }
+    }
+
+    required_for_roles = ["user"]
+
+    permissions {
+      view = ["admin", "user"]
+      edit = ["admin", "user"]
+    }
+  }
+
+  attribute {
+    name         = "firstName"
+    display_name = "$${firstName}"
+
+    validator {
+      name   = "length"
+      config = { max = "255" }
+    }
+    validator { name = "person-name-prohibited-characters" }
+
+    permissions {
+      view = ["admin", "user"]
+      edit = ["admin", "user"]
+    }
+  }
+
+  attribute {
+    name         = "lastName"
+    display_name = "$${lastName}"
+
+    validator {
+      name   = "length"
+      config = { max = "255" }
+    }
+    validator { name = "person-name-prohibited-characters" }
+
+    permissions {
+      view = ["admin", "user"]
+      edit = ["admin", "user"]
+    }
+  }
+
+  # Project-specific attributes — feed the protocol mappers below.
+  attribute {
+    name         = "role"
+    display_name = "Application role"
+    group        = "project"
+
+    permissions {
+      view = ["admin", "user"]
+      edit = ["admin"]
+    }
+  }
+
+  attribute {
+    name         = "approved"
+    display_name = "Approved by admin"
+    group        = "project"
+
+    permissions {
+      view = ["admin", "user"]
+      edit = ["admin"]
+    }
+  }
+
+  attribute {
+    name         = "project"
+    display_name = "Project namespace"
+    group        = "project"
+
+    permissions {
+      view = ["admin", "user"]
+      edit = ["admin"]
+    }
+  }
+
+  group {
+    name           = "project"
+    display_header = "Project"
+  }
+
+  depends_on = [keycloak_realm.project]
+}
+
 # App client (public SPA — browser login, PKCE)
 resource "keycloak_openid_client" "app_client" {
   realm_id                     = keycloak_realm.project.id
